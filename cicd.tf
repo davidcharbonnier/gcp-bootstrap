@@ -52,7 +52,7 @@ locals {
 # source repository
 
 module "automation-tf-cicd-repo" {
-  source = "git@github.com:davidcharbonnier/gcp-modules.git/source-repository?ref=v18.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git/modules/source-repository?ref=v18.0.0"
   for_each = {
     for k, v in local.cicd_repositories : k => v if v.type == "sourcerepo"
   }
@@ -87,7 +87,7 @@ module "automation-tf-cicd-repo" {
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source = "git@github.com:davidcharbonnier/gcp-modules.git/iam-service-account?ref=v18.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git/modules/iam-service-account?ref=v18.0.0"
   for_each    = local.cicd_repositories
   project_id  = module.automation-project.project_id
   name        = "${each.key}-1"
