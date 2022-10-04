@@ -12,8 +12,6 @@ organization = {
   customer_id = "C03wdkbqd"
 }
 
-outputs_location = "~/Projets/Perso/gcp/fast-config"
-
 # use something unique and short
 prefix = "dch"
 
@@ -58,19 +56,19 @@ log_sinks = {
 
 cicd_repositories = {
   bootstrap = {
-    branch            = "master"
+    branch            = null
     identity_provider = "github"
     name              = "davidcharbonnier/gcp-bootstrap"
     type              = "github"
   }
   cicd = {
-    branch            = "master"
+    branch            = null
     identity_provider = "github"
     name              = "davidcharbonnier/gcp-cicd"
     type              = "github"
   }
   resman = {
-    branch            = "master"
+    branch            = null
     identity_provider = "github"
     name              = "davidcharbonnier/gcp-resman"
     type              = "github"
