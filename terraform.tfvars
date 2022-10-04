@@ -12,8 +12,6 @@ organization = {
   customer_id = "C03wdkbqd"
 }
 
-outputs_location = "~/Projets/Perso/gcp/fast-config"
-
 # use something unique and short
 prefix = "dch"
 
