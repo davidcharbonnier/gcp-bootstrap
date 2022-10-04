@@ -126,7 +126,7 @@ locals {
 }
 
 module "organization" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git/modules/organization?ref=v18.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v18.0.0"
   organization_id = "organizations/${var.organization.id}"
   # human (groups) IAM bindings
   group_iam = {
