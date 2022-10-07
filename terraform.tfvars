@@ -21,7 +21,7 @@ custom_role_names = {
 }
 
 locations = {
-  bq      = "northamerica-northeast1"
+  bq      = "us"
   gcs     = "NORTHAMERICA-NORTHEAST1"
   logging = "global"
   pubsub  = []
