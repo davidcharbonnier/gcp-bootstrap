@@ -44,7 +44,6 @@ fast_features = {
 }
 
 log_sinks = {
-  audit-logs = null
   vpc-sc = {
     filter = "protoPayload.metadata.@type=\"type.googleapis.com/google.cloud.audit.VpcServiceControlAuditMetadata\""
     type   = "logging"
