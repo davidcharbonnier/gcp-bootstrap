@@ -44,10 +44,6 @@ fast_features = {
 }
 
 log_sinks = {
-  audit-logs = {
-    filter = "logName:\"/logs/cloudaudit.googleapis.com%2Factivity\" OR logName:\"/logs/cloudaudit.googleapis.com%2Fsystem_event\""
-    type   = "logging"
-  }
   vpc-sc = {
     filter = "protoPayload.metadata.@type=\"type.googleapis.com/google.cloud.audit.VpcServiceControlAuditMetadata\""
     type   = "logging"
