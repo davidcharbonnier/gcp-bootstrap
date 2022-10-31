@@ -1,4 +1,4 @@
 .terraform*
 terraform*
-*auto.tfvars*
-00-bootstrap-providers.tf
+*.auto.tfvars*
+*providers*
