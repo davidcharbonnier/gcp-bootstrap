@@ -40,7 +40,7 @@ fast_features = {
   gke             = true
   project_factory = true
   sandbox         = true
-  teams           = false
+  teams           = true
 }
 
 log_sinks = {
