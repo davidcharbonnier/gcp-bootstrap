@@ -134,7 +134,7 @@ jobs:
             <details><summary>Show Plan</summary>
 
             \`\`\`\n
-            ${process.env.PLAN.split('\n').filter(l => l.match(/^([A-Z\s].*|)$/)).join('\n')}
+            ${process.env.PLAN.split('\n').filter(l => l.match(/^([A-Z\s].*|)$$/)).join('\n')}
             \`\`\`
 
             </details>
