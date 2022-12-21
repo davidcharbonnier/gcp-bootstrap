@@ -114,34 +114,34 @@ jobs:
         uses: actions/github-script@v6
         if: github.event_name == 'pull_request'
         env:
-          PLAN: $${{ steps.tf-plan.outputs.stdout }}\n$${{ steps.tf-plan.outputs.stderr }}
+          PLAN: ${{ steps.tf-plan.outputs.stdout }}\n${{ steps.tf-plan.outputs.stderr }}
         with:
           script: |
-            const output = `### Terraform Initialization \`$${{ steps.tf-init.outcome }}\`
+            const output = `### Terraform Initialization \`${{ steps.tf-init.outcome }}\`
 
-            ### Terraform Validation \`$${{ steps.tf-validate.outcome }}\`
+            ### Terraform Validation \`${{ steps.tf-validate.outcome }}\`
 
             <details><summary>Validation Output</summary>
 
             \`\`\`\n
-            $${{ steps.tf-validate.outputs.stdout }}
+            ${{ steps.tf-validate.outputs.stdout }}
             \`\`\`
 
             </details>
 
-            ### Terraform Plan \`$${{ steps.tf-plan.outcome }}\`
+            ### Terraform Plan \`${{ steps.tf-plan.outcome }}\`
 
             <details><summary>Show Plan</summary>
 
             \`\`\`\n
-            $${process.env.PLAN.split('\n').filter(l => l.match(/^([A-Z\s].*|)$$/)).join('\n')}
+            ${process.env.PLAN.split('\n').filter(l => l.match(/^([A-Z\s].*|)$/)).join('\n')}
             \`\`\`
 
             </details>
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
+            ### Terraform Apply \`${{ steps.tf-apply.outcome }}\`
 
-            *Pusher: @$${{ github.actor }}, Action: \`$${{ github.event_name }}\`, Working Directory: \`$${{ env.tf_actions_working_dir }}\`, Workflow: \`$${{ github.workflow }}\`*`;
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -156,17 +156,17 @@ jobs:
         if: github.event_name == 'pull_request' && steps.pr-comment.outcome != 'success'
         with:
           script: |
-            const output = `### Terraform Initialization \`$${{ steps.tf-init.outcome }}\`
+            const output = `### Terraform Initialization \`${{ steps.tf-init.outcome }}\`
 
-            ### Terraform Validation \`$${{ steps.tf-validate.outcome }}\`
+            ### Terraform Validation \`${{ steps.tf-validate.outcome }}\`
 
-            ### Terraform Plan \`$${{ steps.tf-plan.outcome }}\`
+            ### Terraform Plan \`${{ steps.tf-plan.outcome }}\`
 
             Plan output is in the action log.
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
+            ### Terraform Apply \`${{ steps.tf-apply.outcome }}\`
 
-            *Pusher: @$${{ github.actor }}, Action: \`$${{ github.event_name }}\`, Working Directory: \`$${{ env.tf_actions_working_dir }}\`, Workflow: \`$${{ github.workflow }}\`*`;
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
