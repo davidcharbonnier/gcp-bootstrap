@@ -17,7 +17,7 @@ name: "FAST ${stage_name} stage"
 on:
   pull_request:
     branches:
-      - main
+      - master
     types:
       - closed
       - opened
@@ -79,6 +79,13 @@ jobs:
             ln -s "tfvars/$f" ./
           done
 
+      - name: tfsec
+        uses: aquasecurity/tfsec-pr-commenter-action@v1.2.0
+        with:
+          tfsec_args: --soft-fail
+          soft_fail_commenter: true
+          github_token: $${{ github.token }}
+
       - id: tf-setup
         name: Set up Terraform
         uses: hashicorp/setup-terraform@v2.0.3
@@ -100,6 +107,25 @@ jobs:
         continue-on-error: true
         run: |
           terraform plan -input=false -out ../plan.out -no-color
+
+      - id: tf-plan-json
+        name: Terraform plan to json
+        continue-on-error: true
+        run: |
+          terraform show -json ../plan.out > ../plan.json
+
+      - id: infracost-setup
+        name: Setup Infracost
+        uses: infracost/actions/setup@v2
+        with:
+          api-key: $${{ secrets.INFRACOST_API_KEY }}
+
+      - id: infracost-diff
+        name: Generate Infracost diff
+        run: |
+          infracost diff --path=../plan.json \
+                         --format=json \
+                         --out-file=../infracost.json
 
       - id: tf-apply
         if: github.event.pull_request.merged == true && success()
@@ -139,9 +165,7 @@ jobs:
 
             </details>
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
-
-            *Pusher: @$${{ github.actor }}, Action: \`$${{ github.event_name }}\`, Working Directory: \`$${{ env.tf_actions_working_dir }}\`, Workflow: \`$${{ github.workflow }}\`*`;
+            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\``;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -164,9 +188,7 @@ jobs:
 
             Plan output is in the action log.
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
-
-            *Pusher: @$${{ github.actor }}, Action: \`$${{ github.event_name }}\`, Working Directory: \`$${{ env.tf_actions_working_dir }}\`, Workflow: \`$${{ github.workflow }}\`*`;
+            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\``;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -174,6 +196,15 @@ jobs:
               repo: context.repo.repo,
               body: output
             })
+      
+      - id: infracost-comment
+        name: Post Infracost comment
+        run: |
+          infracost comment github --path=../infracost.json \
+                                   --repo=$GITHUB_REPOSITORY \
+                                   --github-token=$${{github.token}} \
+                                   --pull-request=$${{github.event.pull_request.number}} \
+                                   --behavior=new
 
       - id: check-plan
         name: Check plan failure
