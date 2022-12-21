@@ -79,7 +79,9 @@ jobs:
             ln -s "tfvars/$f" ./
           done
 
-      - name: tfsec
+      - id: tfsec
+        if: github.event.action != 'closed'
+        name: Code security scanner
         uses: aquasecurity/tfsec-pr-commenter-action@v1.2.0
         with:
           tfsec_args: --soft-fail
@@ -109,18 +111,21 @@ jobs:
           terraform plan -input=false -out ../plan.out -no-color
 
       - id: tf-plan-json
+        if: github.event.action != 'closed'
         name: Terraform plan to json
         continue-on-error: true
         run: |
           terraform show -json ../plan.out > ../plan.json
 
       - id: infracost-setup
+        if: github.event.action != 'closed'
         name: Setup Infracost
         uses: infracost/actions/setup@v2
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
 
       - id: infracost-diff
+        if: github.event.action != 'closed'
         name: Generate Infracost diff
         run: |
           infracost diff --path=../plan.json \
@@ -143,6 +148,17 @@ jobs:
           PLAN: ${{ steps.tf-plan.outputs.stdout }}\n${{ steps.tf-plan.outputs.stderr }}
         with:
           script: |
+            // 1. Retrieve existing bot comments for the PR
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            })
+            const botComment = comments.find(comment => {
+              return comment.user.type === 'Bot' && comment.body.includes('Terraform Initialization')
+            })
+
+            // 2. Prepare format of the comment
             const output = `### Terraform Initialization \`${{ steps.tf-init.outcome }}\`
 
             ### Terraform Validation \`${{ steps.tf-validate.outcome }}\`
@@ -167,12 +183,22 @@ jobs:
 
             ### Terraform Apply \`${{ steps.tf-apply.outcome }}\``;
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
+            // 3. If we have a comment, update it, otherwise create a new one
+            if (botComment) {
+              github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              })
+            } else {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+              })
+            }
 
       - id: pr-short-comment
         name: Post comment to Pull Request
@@ -180,6 +206,17 @@ jobs:
         if: github.event_name == 'pull_request' && steps.pr-comment.outcome != 'success'
         with:
           script: |
+            // 1. Retrieve existing bot comments for the PR
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            })
+            const botComment = comments.find(comment => {
+              return comment.user.type === 'Bot' && comment.body.includes('Terraform Initialization')
+            })
+
+            // 2. Prepare format of the comment
             const output = `### Terraform Initialization \`${{ steps.tf-init.outcome }}\`
 
             ### Terraform Validation \`${{ steps.tf-validate.outcome }}\`
@@ -190,21 +227,32 @@ jobs:
 
             ### Terraform Apply \`${{ steps.tf-apply.outcome }}\``;
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
+            // 3. If we have a comment, update it, otherwise create a new one
+            if (botComment) {
+              github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              })
+            } else {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: output
+              })
+            }
       
       - id: infracost-comment
+        if: github.event.action != 'closed'
         name: Post Infracost comment
         run: |
           infracost comment github --path=../infracost.json \
                                    --repo=$GITHUB_REPOSITORY \
                                    --github-token=${{github.token}} \
                                    --pull-request=${{github.event.pull_request.number}} \
-                                   --behavior=new
+                                   --behavior=update
 
       - id: check-plan
         name: Check plan failure
