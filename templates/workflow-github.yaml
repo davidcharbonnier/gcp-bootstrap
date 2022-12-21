@@ -165,7 +165,7 @@ jobs:
 
             </details>
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
+            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\``;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -188,7 +188,7 @@ jobs:
 
             Plan output is in the action log.
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
+            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\``;
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
