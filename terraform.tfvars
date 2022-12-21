@@ -70,3 +70,12 @@ cicd_repositories = {
     type              = "github"
   }
 }
+
+groups = {
+  gcp-billing-admins      = "gcp-billing-admins",
+  gcp-devops              = "gcp-devops",
+  gcp-network-admins      = "gcp-network-admins"
+  gcp-organization-admins = "gcp-organization-admins"
+  gcp-security-admins     = "gcp-security-admins"
+  gcp-support             = "gcp-support"
+}
