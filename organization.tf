@@ -34,9 +34,10 @@ locals {
       [module.automation-tf-bootstrap-sa.iam_email],
       local._iam_bootstrap_user
     )
-    "roles/resourcemanager.organizationViewer" = [
-      "domain:${var.organization.domain}"
-    ]
+    # the following is useful if roles/browser is not desirable
+    # "roles/resourcemanager.organizationViewer" = [
+    #   "domain:${var.organization.domain}"
+    # ]
     "roles/resourcemanager.projectCreator" = concat(
       [module.automation-tf-bootstrap-sa.iam_email],
       local._iam_bootstrap_user
@@ -126,7 +127,7 @@ locals {
 }
 
 module "organization" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v18.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v19.0.0"
   organization_id = "organizations/${var.organization.id}"
   # human (groups) IAM bindings
   group_iam = {
@@ -193,10 +194,7 @@ module "organization" {
     for name, attrs in var.log_sinks : name => {
       bq_partitioned_table = attrs.type == "bigquery"
       destination          = local.log_sink_destinations[name].id
-      exclusions           = {}
       filter               = attrs.filter
-      iam                  = true
-      include_children     = true
       type                 = attrs.type
     }
   }
