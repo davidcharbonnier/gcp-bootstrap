@@ -110,28 +110,6 @@ jobs:
         run: |
           terraform plan -input=false -out ../plan.out -no-color
 
-      - id: tf-plan-json
-        if: github.event.action != 'closed'
-        name: Terraform plan to json
-        continue-on-error: true
-        run: |
-          terraform show -json ../plan.out > ../plan.json
-
-      - id: infracost-setup
-        if: github.event.action != 'closed'
-        name: Setup Infracost
-        uses: infracost/actions/setup@v2
-        with:
-          api-key: ${{ secrets.INFRACOST_API_KEY }}
-
-      - id: infracost-diff
-        if: github.event.action != 'closed'
-        name: Generate Infracost diff
-        run: |
-          infracost diff --path=../plan.json \
-                         --format=json \
-                         --out-file=../infracost.json
-
       - id: tf-apply
         if: github.event.pull_request.merged == true && success()
         name: Terraform apply
@@ -243,16 +221,6 @@ jobs:
                 body: output
               })
             }
-      
-      - id: infracost-comment
-        if: github.event.action != 'closed'
-        name: Post Infracost comment
-        run: |
-          infracost comment github --path=../infracost.json \
-                                   --repo=$GITHUB_REPOSITORY \
-                                   --github-token=${{github.token}} \
-                                   --pull-request=${{github.event.pull_request.number}} \
-                                   --behavior=update
 
       - id: check-plan
         name: Check plan failure

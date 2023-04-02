@@ -80,7 +80,8 @@ module "automation-project" {
     "stackdriver.googleapis.com",
     "storage-component.googleapis.com",
     "storage.googleapis.com",
-    "sts.googleapis.com"
+    "sts.googleapis.com",
+    "sqladmin.googleapis.com"
   ]
 }
 
