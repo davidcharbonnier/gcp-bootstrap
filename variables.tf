@@ -15,11 +15,13 @@
  */
 
 variable "billing_account" {
-  description = "Billing account id and organization id ('nnnnnnnn' or null)."
+  description = "Billing account id. If billing account is not part of the same org set `is_org_level` to `false`. To disable handling of billing IAM roles set `no_iam` to `true`."
   type = object({
-    id              = string
-    organization_id = number
+    id           = string
+    is_org_level = optional(bool, true)
+    no_iam       = optional(bool, false)
   })
+  nullable = false
 }
 
 variable "bootstrap_user" {
@@ -31,24 +33,18 @@ variable "bootstrap_user" {
 variable "cicd_repositories" {
   description = "CI/CD repository configuration. Identity providers reference keys in the `federated_identity_providers` variable. Set to null to disable, or set individual repositories to null if not needed."
   type = object({
-    bootstrap = object({
+    bootstrap = optional(object({
       branch            = string
       identity_provider = string
       name              = string
       type              = string
-    })
-    cicd = object({
+    }))
+    resman = optional(object({
       branch            = string
       identity_provider = string
       name              = string
       type              = string
-    })
-    resman = object({
-      branch            = string
-      identity_provider = string
-      name              = string
-      type              = string
-    })
+    }))
   })
   default = null
   validation {
@@ -85,29 +81,25 @@ variable "custom_role_names" {
   type = object({
     organization_iam_admin        = string
     service_project_network_admin = string
+    tenant_network_admin          = string
   })
   default = {
     organization_iam_admin        = "organizationIamAdmin"
     service_project_network_admin = "serviceProjectNetworkAdmin"
+    tenant_network_admin          = "tenantNetworkAdmin"
   }
 }
 
 variable "fast_features" {
   description = "Selective control for top-level FAST features."
   type = object({
-    data_platform   = bool
-    gke             = bool
-    project_factory = bool
-    sandbox         = bool
-    teams           = bool
+    data_platform   = optional(bool, false)
+    gke             = optional(bool, false)
+    project_factory = optional(bool, false)
+    sandbox         = optional(bool, false)
+    teams           = optional(bool, false)
   })
-  default = {
-    data_platform   = true
-    gke             = true
-    project_factory = true
-    sandbox         = true
-    teams           = true
-  }
+  default  = {}
   nullable = false
 }
 
@@ -183,11 +175,11 @@ variable "log_sinks" {
   default = {
     audit-logs = {
       filter = "logName:\"/logs/cloudaudit.googleapis.com%2Factivity\" OR logName:\"/logs/cloudaudit.googleapis.com%2Fsystem_event\""
-      type   = "bigquery"
+      type   = "logging"
     }
     vpc-sc = {
       filter = "protoPayload.metadata.@type=\"type.googleapis.com/google.cloud.audit.VpcServiceControlAuditMetadata\""
-      type   = "bigquery"
+      type   = "logging"
     }
   }
   validation {

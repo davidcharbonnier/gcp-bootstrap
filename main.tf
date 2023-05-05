@@ -28,10 +28,6 @@ locals {
     for k, v in local.groups :
     k => "group:${v}"
   }
-  # convenience flags that express where billing account resides
-  billing_ext     = var.billing_account.organization_id == null
-  billing_org     = var.billing_account.organization_id == var.organization.id
-  billing_org_ext = !local.billing_ext && !local.billing_org
   # naming: environment used in most resource names
   prefix = join("-", compact([var.prefix, "prod"]))
 }

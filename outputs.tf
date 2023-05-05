@@ -21,7 +21,7 @@ locals {
     for k, v in local.cicd_repositories : k => templatefile(
       "${path.module}/templates/workflow-${v.type}.yaml", {
         identity_provider = try(
-          local.wif_providers[v["identity_provider"]].name, ""
+          local.cicd_providers[v["identity_provider"]].name, ""
         )
         outputs_bucket = module.automation-tf-output-gcs.name
         service_account = try(
@@ -38,19 +38,26 @@ locals {
     k => try(module.organization.custom_role_id[v], null)
   }
   providers = {
-    "00-bootstrap" = templatefile(local._tpl_providers, {
-      bucket = module.automation-tf-bootstrap-gcs.name
-      name   = "bootstrap"
-      sa     = module.automation-tf-bootstrap-sa.email
+    "0-bootstrap" = templatefile(local._tpl_providers, {
+      backend_extra = null
+      bucket        = module.automation-tf-bootstrap-gcs.name
+      name          = "bootstrap"
+      sa            = module.automation-tf-bootstrap-sa.email
     })
-    "00-cicd" = templatefile(local._tpl_providers, {
-      bucket = module.automation-tf-cicd-gcs.name
-      name   = "cicd"
-      sa     = module.automation-tf-cicd-provisioning-sa.email
+    "1-resman" = templatefile(local._tpl_providers, {
+      backend_extra = null
+      bucket        = module.automation-tf-resman-gcs.name
+      name          = "resman"
+      sa            = module.automation-tf-resman-sa.email
     })
-    "01-resman" = templatefile(local._tpl_providers, {
+    "0-bootstrap-tenant" = templatefile(local._tpl_providers, {
+      backend_extra = join("\n", [
+        "# remove the newline between quotes and set the tenant name as prefix",
+        "prefix = \"",
+        "\""
+      ])
       bucket = module.automation-tf-resman-gcs.name
-      name   = "resman"
+      name   = "bootstrap-tenant"
       sa     = module.automation-tf-resman-sa.email
     })
   }
@@ -59,7 +66,7 @@ locals {
       federated_identity_pool = try(
         google_iam_workload_identity_pool.default.0.name, null
       )
-      federated_identity_providers = local.wif_providers
+      federated_identity_providers = local.cicd_providers
       outputs_bucket               = module.automation-tf-output-gcs.name
       project_id                   = module.automation-project.project_id
       project_number               = module.automation-project.number
@@ -73,16 +80,6 @@ locals {
     locations       = var.locations
     organization    = var.organization
     prefix          = var.prefix
-  }
-  wif_providers = {
-    for k, v in google_iam_workload_identity_pool_provider.default :
-    k => {
-      issuer           = local.identity_providers[k].issuer
-      issuer_uri       = local.identity_providers[k].issuer_uri
-      name             = v.name
-      principal_tpl    = local.identity_providers[k].principal_tpl
-      principalset_tpl = local.identity_providers[k].principalset_tpl
-    }
   }
 }
 
@@ -102,7 +99,7 @@ output "cicd_repositories" {
     for k, v in local.cicd_repositories : k => {
       branch          = v.branch
       name            = v.name
-      provider        = try(local.wif_providers[v.identity_provider].name, null)
+      provider        = try(local.cicd_providers[v.identity_provider].name, null)
       service_account = try(module.automation-tf-cicd-sa[k].email, null)
     }
   }
@@ -119,7 +116,7 @@ output "federated_identity" {
     pool = try(
       google_iam_workload_identity_pool.default.0.name, null
     )
-    providers = local.wif_providers
+    providers = local.cicd_providers
   }
 }
 
@@ -149,7 +146,6 @@ output "service_accounts" {
   description = "Automation service accounts created by this stage."
   value = {
     bootstrap = module.automation-tf-bootstrap-sa.email
-    cicd      = module.automation-tf-cicd-provisioning-sa.email
     resman    = module.automation-tf-resman-sa.email
   }
 }

@@ -17,6 +17,16 @@
 # tfdoc:file:description Workload Identity Federation configurations for CI/CD.
 
 locals {
+  cicd_providers = {
+    for k, v in google_iam_workload_identity_pool_provider.default :
+    k => {
+      issuer           = local.identity_providers[k].issuer
+      issuer_uri       = local.identity_providers[k].issuer_uri
+      name             = v.name
+      principal_tpl    = local.identity_providers[k].principal_tpl
+      principalset_tpl = local.identity_providers[k].principalset_tpl
+    }
+  }
   cicd_repositories = {
     for k, v in coalesce(var.cicd_repositories, {}) : k => v
     if(
@@ -32,18 +42,13 @@ locals {
     )
   }
   cicd_workflow_providers = {
-    bootstrap = "00-bootstrap-providers.tf"
-    cicd      = "00-cicd-providers.tf"
-    resman    = "01-resman-providers.tf"
+    bootstrap = "0-bootstrap-providers.tf"
+    resman    = "1-resman-providers.tf"
   }
   cicd_workflow_var_files = {
     bootstrap = []
-    cicd = [
-      "00-bootstrap.auto.tfvars.json",
-      "globals.auto.tfvars.json"
-    ]
     resman = [
-      "00-bootstrap.auto.tfvars.json",
+      "0-bootstrap.auto.tfvars.json",
       "globals.auto.tfvars.json"
     ]
   }
@@ -52,7 +57,7 @@ locals {
 # source repository
 
 module "automation-tf-cicd-repo" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v19.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v21.0.0"
   for_each = {
     for k, v in local.cicd_repositories : k => v if v.type == "sourcerepo"
   }
@@ -69,7 +74,7 @@ module "automation-tf-cicd-repo" {
     ]
   }
   triggers = {
-    "fast-00-${each.key}" = {
+    "fast-0-${each.key}" = {
       filename        = ".cloudbuild/workflow.yaml"
       included_files  = ["**/*tf", ".cloudbuild/workflow.yaml"]
       service_account = module.automation-tf-cicd-sa[each.key].id
@@ -87,7 +92,7 @@ module "automation-tf-cicd-repo" {
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v19.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v21.0.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1"
