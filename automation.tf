@@ -17,7 +17,7 @@
 # tfdoc:file:description Automation project and resources.
 
 module "automation-project" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v19.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v21.0.0"
   billing_account = var.billing_account.id
   name            = "iac-core-0"
   parent = coalesce(
@@ -67,6 +67,7 @@ module "automation-project" {
     "cloudkms.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "container.googleapis.com",
+    "dns.googleapis.com",
     "compute.googleapis.com",
     "container.googleapis.com",
     "essentialcontacts.googleapis.com",
@@ -88,7 +89,7 @@ module "automation-project" {
 # output files bucket
 
 module "automation-tf-output-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v19.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v21.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-outputs-0"
   prefix        = local.prefix
@@ -101,7 +102,7 @@ module "automation-tf-output-gcs" {
 # this stage's bucket and service account
 
 module "automation-tf-bootstrap-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v19.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v21.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-bootstrap-0"
   prefix        = local.prefix
@@ -112,7 +113,7 @@ module "automation-tf-bootstrap-gcs" {
 }
 
 module "automation-tf-bootstrap-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v19.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v21.0.0"
   project_id   = module.automation-project.project_id
   name         = "bootstrap-0"
   display_name = "Terraform organization bootstrap service account."
@@ -128,43 +129,10 @@ module "automation-tf-bootstrap-sa" {
   }
 }
 
-# cicd stage's bucket and service account
-
-module "automation-tf-cicd-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v19.0.0"
-  project_id    = module.automation-project.project_id
-  name          = "iac-core-cicd-0"
-  prefix        = local.prefix
-  location      = var.locations.gcs
-  storage_class = local.gcs_storage_class
-  versioning    = true
-  iam = {
-    "roles/storage.objectAdmin" = [module.automation-tf-cicd-provisioning-sa.iam_email]
-  }
-  depends_on = [module.organization]
-}
-
-module "automation-tf-cicd-provisioning-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v19.0.0"
-  project_id   = module.automation-project.project_id
-  name         = "cicd-0"
-  display_name = "Terraform stage 1 CICD service account."
-  prefix       = local.prefix
-  # allow SA used by CI/CD workflow to impersonate this SA
-  iam = {
-    "roles/iam.serviceAccountTokenCreator" = compact([
-      try(module.automation-tf-cicd-sa["cicd"].iam_email, null)
-    ])
-  }
-  iam_storage_roles = {
-    (module.automation-tf-output-gcs.name) = ["roles/storage.admin"]
-  }
-}
-
 # resource hierarchy stage's bucket and service account
 
 module "automation-tf-resman-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v19.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v21.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-resman-0"
   prefix        = local.prefix
@@ -178,13 +146,14 @@ module "automation-tf-resman-gcs" {
 }
 
 module "automation-tf-resman-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v19.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v21.0.0"
   project_id   = module.automation-project.project_id
   name         = "resman-0"
   display_name = "Terraform stage 1 resman service account."
   prefix       = local.prefix
   # allow SA used by CI/CD workflow to impersonate this SA
-  iam = {
+  # we use additive IAM to allow tenant CI/CD SAs to impersonate it
+  iam_additive = {
     "roles/iam.serviceAccountTokenCreator" = compact([
       try(module.automation-tf-cicd-sa["resman"].iam_email, null)
     ])

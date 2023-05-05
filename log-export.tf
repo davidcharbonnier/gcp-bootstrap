@@ -17,11 +17,21 @@
 # tfdoc:file:description Audit log project and sink.
 
 locals {
+  log_sink_destinations = merge(
+    # use the same dataset for all sinks with `bigquery` as  destination
+    { for k, v in var.log_sinks : k => module.log-export-dataset.0 if v.type == "bigquery" },
+    # use the same gcs bucket for all sinks with `storage` as destination
+    { for k, v in var.log_sinks : k => module.log-export-gcs.0 if v.type == "storage" },
+    # use separate pubsub topics and logging buckets for sinks with
+    # destination `pubsub` and `logging`
+    module.log-export-pubsub,
+    module.log-export-logbucket
+  )
   log_types = toset([for k, v in var.log_sinks : v.type])
 }
 
 module "log-export-project" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v19.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v21.0.0"
   name   = "audit-logs-0"
   parent = coalesce(
     var.project_parent_ids.logging, "organizations/${var.organization.id}"
@@ -44,7 +54,7 @@ module "log-export-project" {
 # one log export per type, with conditionals to skip those not needed
 
 module "log-export-dataset" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v19.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v21.0.0"
   count         = contains(local.log_types, "bigquery") ? 1 : 0
   project_id    = module.log-export-project.project_id
   id            = "audit_export"
@@ -53,7 +63,7 @@ module "log-export-dataset" {
 }
 
 module "log-export-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v19.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v21.0.0"
   count         = contains(local.log_types, "storage") ? 1 : 0
   project_id    = module.log-export-project.project_id
   name          = "audit-logs-0"
@@ -63,7 +73,7 @@ module "log-export-gcs" {
 }
 
 module "log-export-logbucket" {
-  source      = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/logging-bucket?ref=v19.0.0"
+  source      = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/logging-bucket?ref=v21.0.0"
   for_each    = toset([for k, v in var.log_sinks : k if v.type == "logging"])
   parent_type = "project"
   parent      = module.log-export-project.project_id
@@ -72,7 +82,7 @@ module "log-export-logbucket" {
 }
 
 module "log-export-pubsub" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/pubsub?ref=v19.0.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/pubsub?ref=v21.0.0"
   for_each   = toset([for k, v in var.log_sinks : k if v.type == "pubsub"])
   project_id = module.log-export-project.project_id
   name       = "audit-logs-${each.key}"

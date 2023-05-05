@@ -1,5 +1,5 @@
 /**
- * Copyright 2022 Google LLC
+ * Copyright 2023 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,17 @@ locals {
   # organization authoritative IAM bindings, in an easy to edit format before
   # they are combined with var.iam a bit further in locals
   _iam = {
+    "roles/billing.creator" = []
     "roles/browser" = [
       "domain:${var.organization.domain}"
     ]
-    "roles/logging.admin" = [
-      module.automation-tf-bootstrap-sa.iam_email
-    ]
+    "roles/logging.admin" = concat(
+      [
+        module.automation-tf-bootstrap-sa.iam_email,
+        module.automation-tf-resman-sa.iam_email
+      ],
+      local._iam_bootstrap_user
+    )
     "roles/owner" = local._iam_bootstrap_user
     "roles/resourcemanager.folderAdmin" = [
       module.automation-tf-resman-sa.iam_email
@@ -34,12 +39,11 @@ locals {
       [module.automation-tf-bootstrap-sa.iam_email],
       local._iam_bootstrap_user
     )
-    # the following is useful if roles/browser is not desirable
-    # "roles/resourcemanager.organizationViewer" = [
-    #   "domain:${var.organization.domain}"
-    # ]
     "roles/resourcemanager.projectCreator" = concat(
-      [module.automation-tf-bootstrap-sa.iam_email],
+      [
+        module.automation-tf-bootstrap-sa.iam_email,
+        module.automation-tf-resman-sa.iam_email
+      ],
       local._iam_bootstrap_user
     )
     "roles/resourcemanager.projectMover" = [
@@ -77,8 +81,12 @@ locals {
         local.groups_iam.gcp-security-admins,
         module.automation-tf-resman-sa.iam_email
       ]
+      # the following is useful if roles/browser is not desirable
+      # "roles/resourcemanager.organizationViewer" = [
+      #   "domain:${var.organization.domain}"
+      # ]
     },
-    local.billing_org ? {
+    local.billing_mode == "org" ? {
       "roles/billing.admin" = [
         local.groups_iam.gcp-billing-admins,
         local.groups_iam.gcp-organization-admins,
@@ -114,20 +122,10 @@ locals {
   iam_roles_additive = distinct(concat(
     keys(local._iam_additive), keys(var.iam_additive)
   ))
-  log_sink_destinations = merge(
-    # use the same dataset for all sinks with `bigquery` as  destination
-    { for k, v in var.log_sinks : k => module.log-export-dataset.0 if v.type == "bigquery" },
-    # use the same gcs bucket for all sinks with `storage` as destination
-    { for k, v in var.log_sinks : k => module.log-export-gcs.0 if v.type == "storage" },
-    # use separate pubsub topics and logging buckets for sinks with
-    # destination `pubsub` and `logging`
-    module.log-export-pubsub,
-    module.log-export-logbucket
-  )
 }
 
 module "organization" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v19.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v21.0.0"
   organization_id = "organizations/${var.organization.id}"
   # human (groups) IAM bindings
   group_iam = {
@@ -189,6 +187,9 @@ module "organization" {
       "dns.networks.bindPrivateDNSZone",
       "resourcemanager.projects.get",
     ]
+    (var.custom_role_names.tenant_network_admin) = [
+      "compute.globalOperations.get",
+    ]
   }
   logging_sinks = {
     for name, attrs in var.log_sinks : name => {
@@ -219,8 +220,10 @@ resource "google_organization_iam_binding" "org_admin_delegated" {
           "roles/compute.orgFirewallPolicyAdmin",
           "roles/compute.xpnAdmin",
           "roles/orgpolicy.policyAdmin",
+          "roles/resourcemanager.organizationViewer",
+          module.organization.custom_role_id[var.custom_role_names.tenant_network_admin]
         ],
-        local.billing_org ? [
+        local.billing_mode == "org" ? [
           "roles/billing.admin",
           "roles/billing.costsManager",
           "roles/billing.user",

@@ -1,8 +1,7 @@
 # use `gcloud beta billing accounts list`
 # if you have too many accounts, check the Cloud Console :)
 billing_account = {
-  id              = "01B47E-C26C5C-ECBF42"
-  organization_id = 1090403494276
+  id = "01B47E-C26C5C-ECBF42"
 }
 
 # use `gcloud organizations list`
@@ -18,6 +17,7 @@ prefix = "dch"
 custom_role_names = {
   organization_iam_admin        = "orgIamAdmin"
   service_project_network_admin = "svcProjectNetworkAdmin"
+  tenant_network_admin          = "tenantNetworkAdmin"
 }
 
 locations = {
@@ -36,18 +36,10 @@ federated_identity_providers = {
 }
 
 fast_features = {
-  data_platform   = false
   gke             = true
   project_factory = true
   sandbox         = true
   teams           = true
-}
-
-log_sinks = {
-  vpc-sc = {
-    filter = "protoPayload.metadata.@type=\"type.googleapis.com/google.cloud.audit.VpcServiceControlAuditMetadata\""
-    type   = "logging"
-  }
 }
 
 cicd_repositories = {
@@ -55,12 +47,6 @@ cicd_repositories = {
     branch            = null
     identity_provider = "github"
     name              = "davidcharbonnier/gcp-bootstrap"
-    type              = "github"
-  }
-  cicd = {
-    branch            = null
-    identity_provider = "github"
-    name              = "davidcharbonnier/gcp-cicd"
     type              = "github"
   }
   resman = {

@@ -29,7 +29,9 @@ env:
   FAST_WIF_PROVIDER: ${identity_provider}
   SSH_AUTH_SOCK: /tmp/ssh_agent.sock
   TF_PROVIDERS_FILE: ${tf_providers_file}
-  TF_VAR_FILES: ${tf_var_files == [] ? "''" : join("\n    ", tf_var_files)}
+  %{~ if tf_var_files != [] ~}
+  TF_VAR_FILES: ${join("\n    ", tf_var_files)}
+  %{~ endif ~}
   TF_VERSION: 1.3.2
 
 jobs:
@@ -73,11 +75,13 @@ jobs:
         run: |
           gcloud alpha storage cp -r \
             "gs://$${{env.FAST_OUTPUTS_BUCKET}}/providers/$${{env.TF_PROVIDERS_FILE}}" ./
+          %{~ if tf_var_files != [] ~}
           gcloud alpha storage cp -r \
             "gs://$${{env.FAST_OUTPUTS_BUCKET}}/tfvars" ./
           for f in $${{env.TF_VAR_FILES}}; do
             ln -s "tfvars/$f" ./
           done
+          %{~ endif ~}
 
       - id: tfsec
         if: github.event.action != 'closed'
@@ -97,10 +101,12 @@ jobs:
       # run Terraform init/validate/plan
       - id: tf-init
         name: Terraform init
+        continue-on-error: true
         run: |
           terraform init -no-color
 
       - id: tf-validate
+        continue-on-error: true
         name: Terraform validate
         run: terraform validate -no-color
 
@@ -109,28 +115,6 @@ jobs:
         continue-on-error: true
         run: |
           terraform plan -input=false -out ../plan.out -no-color
-
-      - id: tf-plan-json
-        if: github.event.action != 'closed'
-        name: Terraform plan to json
-        continue-on-error: true
-        run: |
-          terraform show -json ../plan.out > ../plan.json
-
-      - id: infracost-setup
-        if: github.event.action != 'closed'
-        name: Setup Infracost
-        uses: infracost/actions/setup@v2
-        with:
-          api-key: $${{ secrets.INFRACOST_API_KEY }}
-
-      - id: infracost-diff
-        if: github.event.action != 'closed'
-        name: Generate Infracost diff
-        run: |
-          infracost diff --path=../plan.json \
-                         --format=json \
-                         --out-file=../infracost.json
 
       - id: tf-apply
         if: github.event.pull_request.merged == true && success()
@@ -148,17 +132,6 @@ jobs:
           PLAN: $${{ steps.tf-plan.outputs.stdout }}\n$${{ steps.tf-plan.outputs.stderr }}
         with:
           script: |
-            // 1. Retrieve existing bot comments for the PR
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            })
-            const botComment = comments.find(comment => {
-              return comment.user.type === 'Bot' && comment.body.includes('Terraform Initialization')
-            })
-
-            // 2. Prepare format of the comment
             const output = `### Terraform Initialization \`$${{ steps.tf-init.outcome }}\`
 
             ### Terraform Validation \`$${{ steps.tf-validate.outcome }}\`
@@ -181,24 +154,16 @@ jobs:
 
             </details>
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\``;
+            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
 
-            // 3. If we have a comment, update it, otherwise create a new one
-            if (botComment) {
-              github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: output
-              })
-            } else {
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: output
-              })
-            }
+            *Pusher: @$${{ github.actor }}, Action: \`$${{ github.event_name }}\`, Working Directory: \`$${{ env.tf_actions_working_dir }}\`, Workflow: \`$${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
 
       - id: pr-short-comment
         name: Post comment to Pull Request
@@ -206,17 +171,6 @@ jobs:
         if: github.event_name == 'pull_request' && steps.pr-comment.outcome != 'success'
         with:
           script: |
-            // 1. Retrieve existing bot comments for the PR
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            })
-            const botComment = comments.find(comment => {
-              return comment.user.type === 'Bot' && comment.body.includes('Terraform Initialization')
-            })
-
-            // 2. Prepare format of the comment
             const output = `### Terraform Initialization \`$${{ steps.tf-init.outcome }}\`
 
             ### Terraform Validation \`$${{ steps.tf-validate.outcome }}\`
@@ -225,34 +179,26 @@ jobs:
 
             Plan output is in the action log.
 
-            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\``;
+            ### Terraform Apply \`$${{ steps.tf-apply.outcome }}\`
 
-            // 3. If we have a comment, update it, otherwise create a new one
-            if (botComment) {
-              github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: output
-              })
-            } else {
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: output
-              })
-            }
-      
-      - id: infracost-comment
-        if: github.event.action != 'closed'
-        name: Post Infracost comment
-        run: |
-          infracost comment github --path=../infracost.json \
-                                   --repo=$GITHUB_REPOSITORY \
-                                   --github-token=$${{github.token}} \
-                                   --pull-request=$${{github.event.pull_request.number}} \
-                                   --behavior=update
+            *Pusher: @$${{ github.actor }}, Action: \`$${{ github.event_name }}\`, Working Directory: \`$${{ env.tf_actions_working_dir }}\`, Workflow: \`$${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - id: check-init
+        name: Check init failure
+        if: steps.tf-init.outcome != 'success'
+        run: exit 1
+
+      - id: check-validate
+        name: Check validate failure
+        if: steps.tf-validate.outcome != 'success'
+        run: exit 1
 
       - id: check-plan
         name: Check plan failure
