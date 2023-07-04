@@ -119,7 +119,7 @@ variable "federated_identity_providers" {
 
 variable "groups" {
   # https://cloud.google.com/docs/enterprise/setup-checklist
-  description = "Group names to grant organization-level permissions."
+  description = "Group names or emails to grant organization-level permissions. If just the name is provided, the default organization domain is assumed."
   type        = map(string)
   default = {
     gcp-billing-admins      = "gcp-billing-admins",
@@ -209,7 +209,6 @@ variable "outputs_location" {
 variable "prefix" {
   description = "Prefix used for resources that need unique names. Use 9 characters or less."
   type        = string
-
   validation {
     condition     = try(length(var.prefix), 0) < 10
     error_message = "Use a maximum of 9 characters for prefix."
