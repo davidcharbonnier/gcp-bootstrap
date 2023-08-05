@@ -125,7 +125,7 @@ locals {
 }
 
 module "organization" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v23.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v24.0.0"
   organization_id = "organizations/${var.organization.id}"
   # human (groups) IAM bindings
   group_iam = {
@@ -163,7 +163,7 @@ module "organization" {
   iam = local.iam
   # additive bindings, used for roles co-managed by different stages
   iam_additive = local.iam_additive
-  custom_roles = {
+  custom_roles = merge(var.custom_roles, {
     # this is needed for use in additive IAM bindings, to avoid conflicts
     (var.custom_role_names.organization_iam_admin) = [
       "resourcemanager.organizations.get",
@@ -190,7 +190,7 @@ module "organization" {
     (var.custom_role_names.tenant_network_admin) = [
       "compute.globalOperations.get",
     ]
-  }
+  })
   logging_sinks = {
     for name, attrs in var.log_sinks : name => {
       bq_partitioned_table = attrs.type == "bigquery"
