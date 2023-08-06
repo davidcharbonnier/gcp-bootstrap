@@ -36,7 +36,6 @@ federated_identity_providers = {
 }
 
 fast_features = {
-  gke             = true
   project_factory = true
   sandbox         = true
   teams           = true
