@@ -1,5 +1,5 @@
 /**
- * Copyright 2022 Google LLC
+ * Copyright 2023 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,8 +20,12 @@ locals {
   cicd_providers = {
     for k, v in google_iam_workload_identity_pool_provider.default :
     k => {
+      audience = try(
+        v.oidc[0].allowed_audiences[0],
+        "https://iam.googleapis.com/${v.name}"
+      )
       issuer           = local.identity_providers[k].issuer
-      issuer_uri       = local.identity_providers[k].issuer_uri
+      issuer_uri       = try(v.oidc[0].issuer_uri, null)
       name             = v.name
       principal_tpl    = local.identity_providers[k].principal_tpl
       principalset_tpl = local.identity_providers[k].principalset_tpl
@@ -57,7 +61,7 @@ locals {
 # source repository
 
 module "automation-tf-cicd-repo" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v24.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v25.0.0"
   for_each = {
     for k, v in local.cicd_repositories : k => v if v.type == "sourcerepo"
   }
@@ -92,7 +96,7 @@ module "automation-tf-cicd-repo" {
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v24.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v25.0.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1"
