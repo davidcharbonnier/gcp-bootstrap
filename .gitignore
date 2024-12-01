@@ -2,3 +2,4 @@
 terraform*
 *.auto.tfvars*
 *providers*
+versions.tf

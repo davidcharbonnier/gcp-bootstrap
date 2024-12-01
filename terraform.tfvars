@@ -31,7 +31,6 @@ federated_identity_providers = {
   github = {
     attribute_condition = "attribute.repository_owner==\"davidcharbonnier\""
     issuer              = "github"
-    custom_settings     = null
   }
 }
 
