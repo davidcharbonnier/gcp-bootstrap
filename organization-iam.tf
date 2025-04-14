@@ -59,6 +59,7 @@ locals {
         "roles/resourcemanager.folderAdmin",
         "roles/resourcemanager.organizationAdmin",
         "roles/resourcemanager.projectCreator",
+        "roles/resourcemanager.tagAdmin"
       ]
       additive = concat(
         [
@@ -102,6 +103,7 @@ locals {
         "roles/resourcemanager.organizationAdmin",
         "roles/resourcemanager.projectCreator",
         "roles/resourcemanager.projectMover",
+        "roles/resourcemanager.tagAdmin"
       ]
       additive = concat(
         [
@@ -140,8 +142,10 @@ locals {
         "roles/logging.admin",
         "roles/owner",
         "roles/resourcemanager.organizationAdmin",
-        "roles/resourcemanager.projectCreator"
+        "roles/resourcemanager.projectCreator",
+        "roles/resourcemanager.tagAdmin"
       ]
+      # TODO: align additive roles with the README
       additive = (
         local.billing_mode != "org" ? [] : [
           "roles/billing.admin",
