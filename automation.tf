@@ -21,7 +21,7 @@ locals {
 }
 
 module "automation-project" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v27.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v28.0.0"
   billing_account = var.billing_account.id
   name            = "iac-core-0"
   parent = coalesce(
@@ -60,6 +60,26 @@ module "automation-project" {
       module.automation-tf-resman-sa.iam_email
     ]
   }
+  iam_bindings = {
+    delegated_grants_resman = {
+      members = [module.automation-tf-resman-sa.iam_email]
+      role    = "roles/resourcemanager.projectIamAdmin"
+      condition = {
+        title       = "resman_delegated_grant"
+        description = "Resource manager service account delegated grant."
+        expression = format(
+          "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly(['%s'])",
+          "roles/serviceusage.serviceUsageConsumer"
+        )
+      }
+    }
+  }
+  iam_bindings_additive = {
+    serviceusage_resman = {
+      member = module.automation-tf-resman-sa.iam_email
+      role   = "roles/serviceusage.serviceUsageConsumer"
+    }
+  }
   services = [
     "accesscontextmanager.googleapis.com",
     "bigquery.googleapis.com",
@@ -93,7 +113,7 @@ module "automation-project" {
 # output files bucket
 
 module "automation-tf-output-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v27.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v28.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-outputs-0"
   prefix        = local.prefix
@@ -106,7 +126,7 @@ module "automation-tf-output-gcs" {
 # this stage's bucket and service account
 
 module "automation-tf-bootstrap-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v27.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v28.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-bootstrap-0"
   prefix        = local.prefix
@@ -117,7 +137,7 @@ module "automation-tf-bootstrap-gcs" {
 }
 
 module "automation-tf-bootstrap-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v27.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v28.0.0"
   project_id   = module.automation-project.project_id
   name         = "bootstrap-0"
   display_name = "Terraform organization bootstrap service account."
@@ -136,7 +156,7 @@ module "automation-tf-bootstrap-sa" {
 # resource hierarchy stage's bucket and service account
 
 module "automation-tf-resman-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v27.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v28.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-resman-0"
   prefix        = local.prefix
@@ -150,7 +170,7 @@ module "automation-tf-resman-gcs" {
 }
 
 module "automation-tf-resman-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v27.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v28.0.0"
   project_id   = module.automation-project.project_id
   name         = "resman-0"
   display_name = "Terraform stage 1 resman service account."

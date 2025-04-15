@@ -34,7 +34,7 @@ locals {
 # billing account in same org (IAM is in the organization.tf file)
 
 module "billing-export-project" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v27.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v28.0.0"
   count           = local.billing_mode == "org" ? 1 : 0
   billing_account = var.billing_account.id
   name            = "billing-exp-0"
@@ -56,7 +56,7 @@ module "billing-export-project" {
 }
 
 module "billing-export-dataset" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v27.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v28.0.0"
   count         = local.billing_mode == "org" ? 1 : 0
   project_id    = module.billing-export-project.0.project_id
   id            = "billing_export"
@@ -72,14 +72,5 @@ resource "google_billing_account_iam_member" "billing_ext_admin" {
   )
   billing_account_id = var.billing_account.id
   role               = "roles/billing.admin"
-  member             = each.key
-}
-
-resource "google_billing_account_iam_member" "billing_ext_cost_manager" {
-  for_each = toset(
-    local.billing_mode == "resource" ? local.billing_ext_admins : []
-  )
-  billing_account_id = var.billing_account.id
-  role               = "roles/billing.costsManager"
   member             = each.key
 }
