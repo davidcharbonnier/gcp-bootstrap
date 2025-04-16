@@ -24,6 +24,10 @@ locals {
     module.automation-tf-bootstrap-sa.iam_email,
     module.automation-tf-resman-sa.iam_email
   ]
+  billing_ext_viewers = [
+    module.automation-tf-bootstrap-r-sa.iam_email,
+    module.automation-tf-resman-r-sa.iam_email
+  ]
   billing_mode = (
     var.billing_account.no_iam
     ? null
@@ -34,7 +38,7 @@ locals {
 # billing account in same org (IAM is in the organization.tf file)
 
 module "billing-export-project" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v28.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v29.0.0"
   count           = local.billing_mode == "org" ? 1 : 0
   billing_account = var.billing_account.id
   name            = "billing-exp-0"
@@ -43,7 +47,8 @@ module "billing-export-project" {
   )
   prefix = local.prefix
   iam = {
-    "roles/owner" = [module.automation-tf-bootstrap-sa.iam_email]
+    "roles/owner"  = [module.automation-tf-bootstrap-sa.iam_email]
+    "roles/viewer" = [module.automation-tf-bootstrap-r-sa.iam_email]
   }
   services = [
     # "cloudresourcemanager.googleapis.com",
@@ -56,12 +61,12 @@ module "billing-export-project" {
 }
 
 module "billing-export-dataset" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v28.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v29.0.0"
   count         = local.billing_mode == "org" ? 1 : 0
   project_id    = module.billing-export-project.0.project_id
   id            = "billing_export"
   friendly_name = "Billing export."
-  location      = var.locations.bq
+  location      = local.locations.bq
 }
 
 # standalone billing account
@@ -72,5 +77,14 @@ resource "google_billing_account_iam_member" "billing_ext_admin" {
   )
   billing_account_id = var.billing_account.id
   role               = "roles/billing.admin"
+  member             = each.key
+}
+
+resource "google_billing_account_iam_member" "billing_ext_viewer" {
+  for_each = toset(
+    local.billing_mode == "resource" ? local.billing_ext_viewers : []
+  )
+  billing_account_id = var.billing_account.id
+  role               = "roles/billing.viewer"
   member             = each.key
 }
