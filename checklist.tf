@@ -17,13 +17,13 @@
 locals {
   # group mapping from checklist to ours
   _cl_groups = {
-    BILLING_ADMINS = local.groups.gcp-billing-admins
-    DEVOPS         = local.groups.gcp-devops
+    BILLING_ADMINS = local.principals.gcp-billing-admins
+    DEVOPS         = local.principals.gcp-devops
     # LOGGING_ADMINS
     # MONITORING_ADMINS
-    NETWORK_ADMINS  = local.groups.gcp-network-admins
-    ORG_ADMINS      = local.groups.gcp-organization-admins
-    SECURITY_ADMINS = local.groups.gcp-security-admins
+    NETWORK_ADMINS  = local.principals.gcp-network-admins
+    ORG_ADMINS      = local.principals.gcp-organization-admins
+    SECURITY_ADMINS = local.principals.gcp-security-admins
   }
   # parse raw data from JSON files if they exist
   _cl_data_raw = (
@@ -64,7 +64,7 @@ locals {
   # compile the final data structure we will consume from various places
   checklist = {
     billing_account = try(local._cl_data.billing_account, null)
-    group_iam = {
+    iam_principals = {
       for k, v in local._cl_org_iam_bindings :
       k => v.authoritative if v.is_group && length(v.authoritative) > 0
     }
@@ -76,8 +76,8 @@ locals {
       for k, v in local._cl_org_iam_bindings : [
         for r in v.additive : [
           {
-            key    = v.is_group ? "${r}-group:${k}" : "${r}-${k}"
-            member = v.is_group ? "group:${k}" : k
+            key    = "${r}-${k}"
+            member = k
             role   = r
           }
         ]
@@ -91,7 +91,6 @@ locals {
     var.factories_config.checklist_org_iam != null
   )
 }
-
 check "checklist" {
   # checklist data files don't need to be both present so we check independently
   # version mismatch might be ok, we just alert users
@@ -129,7 +128,7 @@ check "checklist" {
 # checklist files bucket
 
 module "automation-tf-checklist-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v29.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v30.0.0"
   count         = local.uses_checklist ? 1 : 0
   project_id    = module.automation-project.project_id
   name          = "iac-core-checklist-0"

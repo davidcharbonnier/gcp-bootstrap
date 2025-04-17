@@ -1,5 +1,5 @@
 /**
- * Copyright 2022 Google LLC
+ * Copyright 2024 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,13 +37,18 @@ locals {
 }
 
 module "log-export-project" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v29.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v30.0.0"
   name   = "audit-logs-0"
   parent = coalesce(
     var.project_parent_ids.logging, "organizations/${var.organization.id}"
   )
   prefix          = local.prefix
   billing_account = var.billing_account.id
+  contacts = (
+    var.bootstrap_user != null || var.essential_contacts == null
+    ? {}
+    : { (var.essential_contacts) = ["ALL"] }
+  )
   iam = {
     "roles/owner"  = [module.automation-tf-bootstrap-sa.iam_email]
     "roles/viewer" = [module.automation-tf-bootstrap-r-sa.iam_email]
@@ -61,37 +66,41 @@ module "log-export-project" {
 # one log export per type, with conditionals to skip those not needed
 
 module "log-export-dataset" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v29.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v30.0.0"
   count         = contains(local.log_types, "bigquery") ? 1 : 0
   project_id    = module.log-export-project.project_id
-  id            = "audit_export"
+  id            = "logs"
   friendly_name = "Audit logs export."
   location      = local.locations.bq
 }
 
 module "log-export-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v29.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v30.0.0"
   count         = contains(local.log_types, "storage") ? 1 : 0
   project_id    = module.log-export-project.project_id
-  name          = "audit-logs-0"
+  name          = "logs"
   prefix        = local.prefix
   location      = local.locations.gcs
   storage_class = local.gcs_storage_class
 }
 
 module "log-export-logbucket" {
-  source      = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/logging-bucket?ref=v29.0.0"
-  for_each    = toset([for k, v in var.log_sinks : k if v.type == "logging"])
-  parent_type = "project"
-  parent      = module.log-export-project.project_id
-  id          = "audit-logs-${each.key}"
-  location    = local.locations.logging
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/logging-bucket?ref=v30.0.0"
+  for_each      = toset([for k, v in var.log_sinks : k if v.type == "logging"])
+  parent_type   = "project"
+  parent        = module.log-export-project.project_id
+  id            = each.key
+  location      = local.locations.logging
+  log_analytics = { enable = true }
+
+  # org-level logging settings ready before we create any logging buckets
+  depends_on = [module.organization-logging]
 }
 
 module "log-export-pubsub" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/pubsub?ref=v29.0.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/pubsub?ref=v30.0.0"
   for_each   = toset([for k, v in var.log_sinks : k if v.type == "pubsub"])
   project_id = module.log-export-project.project_id
-  name       = "audit-logs-${each.key}"
+  name       = each.key
   regions    = local.locations.pubsub
 }

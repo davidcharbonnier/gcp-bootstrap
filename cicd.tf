@@ -1,5 +1,5 @@
 /**
- * Copyright 2023 Google LLC
+ * Copyright 2024 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,11 +24,11 @@ locals {
         v.oidc[0].allowed_audiences,
         ["https://iam.googleapis.com/${v.name}"]
       )
-      issuer           = local.identity_providers[k].issuer
+      issuer           = local.workload_identity_providers[k].issuer
       issuer_uri       = try(v.oidc[0].issuer_uri, null)
       name             = v.name
-      principal_branch = local.identity_providers[k].principal_branch
-      principal_repo   = local.identity_providers[k].principal_repo
+      principal_branch = local.workload_identity_providers[k].principal_branch
+      principal_repo   = local.workload_identity_providers[k].principal_repo
     }
   }
   cicd_repositories = {
@@ -40,7 +40,7 @@ locals {
         try(v.type, null) == "sourcerepo"
         ||
         contains(
-          keys(local.identity_providers),
+          keys(local.workload_identity_providers),
           coalesce(try(v.identity_provider, null), ":")
         )
       )
@@ -68,7 +68,7 @@ locals {
 # source repository
 
 module "automation-tf-cicd-repo" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v29.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v30.0.0"
   for_each = {
     for k, v in local.cicd_repositories : k => v if v.type == "sourcerepo"
   }
@@ -83,8 +83,8 @@ module "automation-tf-cicd-repo" {
     "roles/source.reader" = concat(
       [module.automation-tf-cicd-sa[each.key].iam_email],
       each.key == "bootstrap"
-      ? module.automation-tf-bootstrap-r-sa.iam_email
-      : module.automation-tf-resman-r-sa.iam_email
+      ? [module.automation-tf-bootstrap-r-sa.iam_email]
+      : [module.automation-tf-resman-r-sa.iam_email]
     )
   }
   triggers = {
@@ -106,7 +106,7 @@ module "automation-tf-cicd-repo" {
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v29.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v30.0.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1"
@@ -121,12 +121,12 @@ module "automation-tf-cicd-sa" {
       "roles/iam.workloadIdentityUser" = [
         each.value.branch == null
         ? format(
-          local.identity_providers_defs[each.value.type].principal_repo,
+          local.workload_identity_providers_defs[each.value.type].principal_repo,
           google_iam_workload_identity_pool.default.0.name,
           each.value.name
         )
         : format(
-          local.identity_providers_defs[each.value.type].principal_branch,
+          local.workload_identity_providers_defs[each.value.type].principal_branch,
           google_iam_workload_identity_pool.default.0.name,
           each.value.name,
           each.value.branch
@@ -143,7 +143,7 @@ module "automation-tf-cicd-sa" {
 }
 
 module "automation-tf-cicd-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v29.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v30.0.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1r"
@@ -157,7 +157,7 @@ module "automation-tf-cicd-r-sa" {
     : {
       "roles/iam.workloadIdentityUser" = [
         format(
-          local.identity_providers_defs[each.value.type].principal_repo,
+          local.workload_identity_providers_defs[each.value.type].principal_repo,
           google_iam_workload_identity_pool.default.0.name,
           each.value.name
         )

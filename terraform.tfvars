@@ -14,12 +14,6 @@ organization = {
 # use something unique and short
 prefix = "dch"
 
-custom_role_names = {
-  organization_iam_admin        = "orgIamAdmin"
-  service_project_network_admin = "svcProjectNetworkAdmin"
-  tenant_network_admin          = "tenantNetworkAdmin"
-}
-
 locations = {
   bq      = "us"
   gcs     = "NORTHAMERICA-NORTHEAST1"
@@ -27,7 +21,7 @@ locations = {
   pubsub  = []
 }
 
-federated_identity_providers = {
+workload_identity_providers = {
   github = {
     attribute_condition = "attribute.repository_owner==\"davidcharbonnier\""
     issuer              = "github"
