@@ -128,7 +128,7 @@ check "checklist" {
 # checklist files bucket
 
 module "automation-tf-checklist-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v30.0.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v31.1.0"
   count         = local.uses_checklist ? 1 : 0
   project_id    = module.automation-project.project_id
   name          = "iac-core-checklist-0"
@@ -141,14 +141,14 @@ module "automation-tf-checklist-gcs" {
 
 resource "google_storage_bucket_object" "checklist_data" {
   count  = var.factories_config.checklist_data != null ? 1 : 0
-  bucket = module.automation-tf-checklist-gcs.0.name
+  bucket = module.automation-tf-checklist-gcs[0].name
   name   = "checklist/data.tfvars.json"
   source = var.factories_config.checklist_data
 }
 
 resource "google_storage_bucket_object" "checklist_org_iam" {
   count  = var.factories_config.checklist_org_iam != null ? 1 : 0
-  bucket = module.automation-tf-checklist-gcs.0.name
+  bucket = module.automation-tf-checklist-gcs[0].name
   name   = "checklist/org-iam.tfvars.json"
   source = var.factories_config.checklist_org_iam
 }

@@ -68,7 +68,7 @@ locals {
 # source repository
 
 module "automation-tf-cicd-repo" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v30.0.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v31.1.0"
   for_each = {
     for k, v in local.cicd_repositories : k => v if v.type == "sourcerepo"
   }
@@ -106,7 +106,7 @@ module "automation-tf-cicd-repo" {
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v30.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v31.1.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1"
@@ -122,12 +122,12 @@ module "automation-tf-cicd-sa" {
         each.value.branch == null
         ? format(
           local.workload_identity_providers_defs[each.value.type].principal_repo,
-          google_iam_workload_identity_pool.default.0.name,
+          google_iam_workload_identity_pool.default[0].name,
           each.value.name
         )
         : format(
           local.workload_identity_providers_defs[each.value.type].principal_branch,
-          google_iam_workload_identity_pool.default.0.name,
+          google_iam_workload_identity_pool.default[0].name,
           each.value.name,
           each.value.branch
         )
@@ -143,7 +143,7 @@ module "automation-tf-cicd-sa" {
 }
 
 module "automation-tf-cicd-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v30.0.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v31.1.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1r"
@@ -158,7 +158,7 @@ module "automation-tf-cicd-r-sa" {
       "roles/iam.workloadIdentityUser" = [
         format(
           local.workload_identity_providers_defs[each.value.type].principal_repo,
-          google_iam_workload_identity_pool.default.0.name,
+          google_iam_workload_identity_pool.default[0].name,
           each.value.name
         )
       ]
