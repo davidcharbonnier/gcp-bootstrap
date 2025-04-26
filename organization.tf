@@ -104,16 +104,15 @@ import {
     !var.org_policies_config.import_defaults || var.bootstrap_user != null
     ? toset([])
     : toset([
-      "compute.requireOsLogin",
-      "compute.skipDefaultNetworkCreation",
-      "compute.vmExternalIpAccess",
-      "iam.allowedPolicyMemberDomains",
-      "iam.automaticIamGrantsForDefaultServiceAccounts",
+      # source: https://cloud.google.com/resource-manager/docs/secure-by-default-organizations#organization_policies_enforced_on_organization_resources
+      # listed in the order as on page
       "iam.disableServiceAccountKeyCreation",
       "iam.disableServiceAccountKeyUpload",
-      "sql.restrictAuthorizedNetworks",
-      "sql.restrictPublicIp",
+      "iam.automaticIamGrantsForDefaultServiceAccounts",
+      "iam.allowedPolicyMemberDomains",
+      "essentialcontacts.allowedContactDomains",
       "storage.uniformBucketLevelAccess",
+      # "compute.setNewProjectDefaultToZonalDNSOnly", # not confirmed, that this is already live
     ])
   )
   id = "organizations/${var.organization.id}/policies/${each.key}"
@@ -126,7 +125,7 @@ module "organization-logging" {
   # specified by `var.locations.logging`. This separate
   # organization-block prevents circular dependencies with later
   # project creation.
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v31.1.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v32.0.1"
   organization_id = "organizations/${var.organization.id}"
   logging_settings = {
     storage_location = var.locations.logging
@@ -134,7 +133,7 @@ module "organization-logging" {
 }
 
 module "organization" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v31.1.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v32.0.1"
   organization_id = module.organization-logging.id
   # human (groups) IAM bindings
   iam_by_principals = {

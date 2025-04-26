@@ -28,12 +28,6 @@ workload_identity_providers = {
   }
 }
 
-fast_features = {
-  project_factory = true
-  sandbox         = true
-  teams           = true
-}
-
 cicd_repositories = {
   bootstrap = {
     branch            = null

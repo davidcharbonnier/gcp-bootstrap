@@ -1,5 +1,5 @@
 .terraform*
 terraform*
 *.auto.tfvars*
-*providers*
+*providers.tf*
 versions.tf

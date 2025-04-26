@@ -45,6 +45,12 @@ variable "cicd_repositories" {
       branch            = optional(string)
       identity_provider = optional(string)
     }))
+    tenants = optional(object({
+      name              = string
+      type              = string
+      branch            = optional(string)
+      identity_provider = optional(string)
+    }))
   })
   default = null
   validation {
@@ -57,22 +63,18 @@ variable "cicd_repositories" {
   validation {
     condition = alltrue([
       for k, v in coalesce(var.cicd_repositories, {}) :
-      v == null || (
-        try(v.identity_provider, null) != null
-        ||
-        try(v.type, null) == "sourcerepo"
-      )
+      v == null || try(v.identity_provider, null) != null
     ])
-    error_message = "Non-null repositories need a non-null provider unless type is 'sourcerepo'."
+    error_message = "Non-null repositories need a non-null provider."
   }
   validation {
     condition = alltrue([
       for k, v in coalesce(var.cicd_repositories, {}) :
       v == null || (
-        contains(["github", "gitlab", "sourcerepo"], coalesce(try(v.type, null), "null"))
+        contains(["github", "gitlab"], coalesce(try(v.type, null), "null"))
       )
     ])
-    error_message = "Invalid repository type, supported types: 'github' 'gitlab' or 'sourcerepo'."
+    error_message = "Invalid repository type, supported types: 'github' or 'gitlab'."
   }
 }
 
@@ -99,20 +101,6 @@ variable "factories_config" {
   })
   nullable = false
   default  = {}
-}
-
-variable "fast_features" {
-  description = "Selective control for top-level FAST features."
-  type = object({
-    data_platform   = optional(bool, false)
-    gcve            = optional(bool, false)
-    gke             = optional(bool, false)
-    project_factory = optional(bool, false)
-    sandbox         = optional(bool, false)
-    teams           = optional(bool, false)
-  })
-  default  = {}
-  nullable = false
 }
 
 variable "groups" {
@@ -180,6 +168,7 @@ variable "log_sinks" {
     filter = string
     type   = string
   }))
+  nullable = false
   default = {
     audit-logs = {
       filter = <<-FILTER

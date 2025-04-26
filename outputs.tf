@@ -67,15 +67,17 @@ locals {
       name          = "resman"
       sa            = module.automation-tf-resman-r-sa.email
     })
-    "0-bootstrap-tenant" = templatefile(local._tpl_providers, {
-      backend_extra = join("\n", [
-        "# remove the newline between quotes and set the tenant name as prefix",
-        "prefix = \"",
-        "\""
-      ])
-      bucket = module.automation-tf-resman-gcs.name
-      name   = "bootstrap-tenant"
-      sa     = module.automation-tf-resman-sa.email
+    "1-tenant-factory" = templatefile(local._tpl_providers, {
+      backend_extra = "prefix = \"tenant-factory\""
+      bucket        = module.automation-tf-resman-gcs.name
+      name          = "tenant-factory"
+      sa            = module.automation-tf-resman-sa.email
+    })
+    "1-tenant-factory-r" = templatefile(local._tpl_providers, {
+      backend_extra = "prefix = \"tenant-factory\""
+      bucket        = module.automation-tf-resman-gcs.name
+      name          = "tenant-factory"
+      sa            = module.automation-tf-resman-r-sa.email
     })
   }
   tfvars = {
@@ -113,7 +115,6 @@ locals {
   }
   tfvars_globals = {
     billing_account = var.billing_account
-    fast_features   = var.fast_features
     groups          = local.principals
     locations       = local.locations
     organization    = var.organization
