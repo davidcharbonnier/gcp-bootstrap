@@ -21,10 +21,12 @@ locals {
   cicd_resman_r_sa  = try(module.automation-tf-cicd-r-sa["resman"].iam_email, "")
   cicd_tenants_sa   = try(module.automation-tf-cicd-sa["tenants"].iam_email, "")
   cicd_tenants_r_sa = try(module.automation-tf-cicd-r-sa["tenants"].iam_email, "")
+  cicd_vpcsc_sa     = try(module.automation-tf-cicd-sa["vpcsc"].iam_email, "")
+  cicd_vpcsc_r_sa   = try(module.automation-tf-cicd-r-sa["vpcsc"].iam_email, "")
 }
 
 module "automation-project" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v32.0.1"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v33.0.0"
   billing_account = var.billing_account.id
   name            = "iac-core-0"
   parent = coalesce(
@@ -141,6 +143,7 @@ module "automation-project" {
       "essentialcontacts.googleapis.com",
       "iam.googleapis.com",
       "iamcredentials.googleapis.com",
+      "networksecurity.googleapis.com",
       "orgpolicy.googleapis.com",
       "pubsub.googleapis.com",
       "servicenetworking.googleapis.com",
@@ -159,7 +162,6 @@ module "automation-project" {
       "sqladmin.googleapis.com"
     ]
   )
-
   # Enable IAM data access logs to capture impersonation and service
   # account token generation events. This is implemented within the
   # automation project to limit log volume. For heightened security,
@@ -182,7 +184,7 @@ module "automation-project" {
 # output files bucket
 
 module "automation-tf-output-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v32.0.1"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v33.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-outputs-0"
   prefix        = local.prefix
@@ -195,7 +197,7 @@ module "automation-tf-output-gcs" {
 # this stage's bucket and service account
 
 module "automation-tf-bootstrap-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v32.0.1"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v33.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-bootstrap-0"
   prefix        = local.prefix
@@ -206,7 +208,7 @@ module "automation-tf-bootstrap-gcs" {
 }
 
 module "automation-tf-bootstrap-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v32.0.1"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
   project_id   = module.automation-project.project_id
   name         = "bootstrap-0"
   display_name = "Terraform organization bootstrap service account."
@@ -223,7 +225,7 @@ module "automation-tf-bootstrap-sa" {
 }
 
 module "automation-tf-bootstrap-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v32.0.1"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
   project_id   = module.automation-project.project_id
   name         = "bootstrap-0r"
   display_name = "Terraform organization bootstrap service account (read-only)."
@@ -250,7 +252,7 @@ module "automation-tf-bootstrap-r-sa" {
 # resource hierarchy stage's bucket and service account
 
 module "automation-tf-resman-gcs" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v32.0.1"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v33.0.0"
   project_id    = module.automation-project.project_id
   name          = "iac-core-resman-0"
   prefix        = local.prefix
@@ -265,7 +267,7 @@ module "automation-tf-resman-gcs" {
 }
 
 module "automation-tf-resman-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v32.0.1"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
   project_id   = module.automation-project.project_id
   name         = "resman-0"
   display_name = "Terraform stage 1 resman service account."
@@ -274,13 +276,13 @@ module "automation-tf-resman-sa" {
   # we use additive IAM to allow tenant CI/CD SAs to impersonate it
   iam_bindings_additive = merge(
     local.cicd_resman_sa == "" ? {} : {
-      cicd_token_creator = {
+      cicd_token_creator_resman = {
         member = local.cicd_resman_sa
         role   = "roles/iam.serviceAccountTokenCreator"
       }
     },
     local.cicd_tenants_sa == "" ? {} : {
-      cicd_token_creator = {
+      cicd_token_creator_tenants = {
         member = local.cicd_tenants_sa
         role   = "roles/iam.serviceAccountTokenCreator"
       }
@@ -292,7 +294,7 @@ module "automation-tf-resman-sa" {
 }
 
 module "automation-tf-resman-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v32.0.1"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
   project_id   = module.automation-project.project_id
   name         = "resman-0r"
   display_name = "Terraform stage 1 resman service account (read-only)."
@@ -301,13 +303,13 @@ module "automation-tf-resman-r-sa" {
   # we use additive IAM to allow tenant CI/CD SAs to impersonate it
   iam_bindings_additive = merge(
     local.cicd_resman_r_sa == "" ? {} : {
-      cicd_token_creator = {
+      cicd_token_creator_resman = {
         member = local.cicd_resman_r_sa
         role   = "roles/iam.serviceAccountTokenCreator"
       }
     },
     local.cicd_tenants_r_sa == "" ? {} : {
-      cicd_token_creator = {
+      cicd_token_creator_tenants = {
         member = local.cicd_tenants_r_sa
         role   = "roles/iam.serviceAccountTokenCreator"
       }
@@ -320,6 +322,69 @@ module "automation-tf-resman-r-sa" {
       module.organization.custom_role_id["organization_admin_viewer"],
       module.organization.custom_role_id["tag_viewer"]
     ]
+  }
+  iam_storage_roles = {
+    (module.automation-tf-output-gcs.name) = [module.organization.custom_role_id["storage_viewer"]]
+  }
+}
+
+# VPC SC stage's bucket and service account
+
+module "automation-tf-vpcsc-gcs" {
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v33.0.0"
+  project_id    = module.automation-project.project_id
+  name          = "iac-core-vpcsc-0"
+  prefix        = local.prefix
+  location      = local.locations.gcs
+  storage_class = local.gcs_storage_class
+  versioning    = true
+  iam = {
+    "roles/storage.objectAdmin"  = [module.automation-tf-vpcsc-sa.iam_email]
+    "roles/storage.objectViewer" = [module.automation-tf-vpcsc-r-sa.iam_email]
+  }
+  depends_on = [module.organization]
+}
+
+module "automation-tf-vpcsc-sa" {
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
+  project_id   = module.automation-project.project_id
+  name         = "vpcsc-0"
+  display_name = "Terraform stage 1 vpcsc service account."
+  prefix       = local.prefix
+  # allow SA used by CI/CD workflow to impersonate this SA
+  # we use additive IAM to allow tenant CI/CD SAs to impersonate it
+  iam_bindings_additive = merge(
+    {
+      security_admins = {
+        member = local.principals["gcp-security-admins"]
+        role   = "roles/iam.serviceAccountTokenCreator"
+      }
+    },
+    local.cicd_vpcsc_sa == "" ? {} : {
+      cicd_token_creator_vpcsc = {
+        member = local.cicd_vpcsc_sa
+        role   = "roles/iam.serviceAccountTokenCreator"
+      }
+    }
+  )
+  iam_storage_roles = {
+    (module.automation-tf-output-gcs.name) = ["roles/storage.admin"]
+  }
+}
+
+module "automation-tf-vpcsc-r-sa" {
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
+  project_id   = module.automation-project.project_id
+  name         = "vpcsc-0r"
+  display_name = "Terraform stage 1 vpcsc service account (read-only)."
+  prefix       = local.prefix
+  # allow SA used by CI/CD workflow to impersonate this SA
+  # we use additive IAM to allow tenant CI/CD SAs to impersonate it
+  iam_bindings_additive = local.cicd_vpcsc_r_sa == "" ? {} : {
+    cicd_token_creator_vpcsc = {
+      member = local.cicd_vpcsc_r_sa
+      role   = "roles/iam.serviceAccountTokenCreator"
+    }
   }
   iam_storage_roles = {
     (module.automation-tf-output-gcs.name) = [module.organization.custom_role_id["storage_viewer"]]

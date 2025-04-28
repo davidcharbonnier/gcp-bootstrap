@@ -53,6 +53,8 @@ locals {
     resman_r    = "1-resman-r-providers.tf"
     tenants     = "1-tenant-factory-providers.tf"
     tenants_r   = "1-tenant-factory-r-providers.tf"
+    vpcsc       = "1-vpcsc-providers.tf"
+    vpcsc_r     = "1-vpcsc-r-providers.tf"
   }
   cicd_workflow_var_files = {
     bootstrap = []
@@ -64,13 +66,17 @@ locals {
       "0-bootstrap.auto.tfvars.json",
       "0-globals.auto.tfvars.json"
     ]
+    vpcsc = [
+      "0-bootstrap.auto.tfvars.json",
+      "0-globals.auto.tfvars.json"
+    ]
   }
 }
 
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v32.0.1"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1"
@@ -101,7 +107,7 @@ module "automation-tf-cicd-sa" {
 }
 
 module "automation-tf-cicd-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v32.0.1"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v33.0.0"
   for_each     = local.cicd_repositories
   project_id   = module.automation-project.project_id
   name         = "${each.key}-1r"
