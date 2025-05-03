@@ -490,6 +490,8 @@ By default, all logs are exported to a log bucket, but FAST can create sinks to 
 
 If you need to capture additional logs, please refer to GCP's documentation on [scenarios for exporting logging data](https://cloud.google.com/architecture/exporting-stackdriver-logging-for-security-and-access-analytics), where you can find ready-made filter expressions for different use cases.
 
+When using Pubsub or BigQuery destinations, make sure the read-only stage service account (`prefix-prod-bootstrap-0r@prefix-prod-iac-core-0.iam.gserviceaccount.com`) has the necessary permissions to view destination resources. You can add them manually via the authoritative `iam` or the additive `iam_bindings_additive` variables. Refer to issue [#2540](https://github.com/GoogleCloudPlatform/cloud-foundation-fabric/issues/2540) for a discussion on this topic, and simple commands to verify proper permissions have been added.
+
 ### Names and naming convention
 
 Configuring the individual tokens for the naming convention described above, has varying degrees of complexity:
@@ -666,15 +668,15 @@ The remaining configuration is manual, as it regards the repositories themselves
 
 | name | description | sensitive | consumers |
 |---|---|:---:|---|
-| [automation](outputs.tf#L140) | Automation resources. |  |  |
-| [billing_dataset](outputs.tf#L145) | BigQuery dataset prepared for billing export. |  |  |
-| [cicd_repositories](outputs.tf#L150) | CI/CD repository configurations. |  |  |
-| [custom_roles](outputs.tf#L162) | Organization-level custom roles. |  |  |
-| [outputs_bucket](outputs.tf#L167) | GCS bucket where generated output files are stored. |  |  |
-| [project_ids](outputs.tf#L172) | Projects created by this stage. |  |  |
-| [providers](outputs.tf#L182) | Terraform provider files for this stage and dependent stages. | ✓ | <code>stage-01</code> |
-| [service_accounts](outputs.tf#L189) | Automation service accounts created by this stage. |  |  |
-| [tfvars](outputs.tf#L207) | Terraform variable files for the following stages. | ✓ |  |
-| [workforce_identity_pool](outputs.tf#L213) | Workforce Identity Federation pool. |  |  |
-| [workload_identity_pool](outputs.tf#L222) | Workload Identity Federation pool and providers. |  |  |
+| [automation](outputs.tf#L146) | Automation resources. |  |  |
+| [billing_dataset](outputs.tf#L151) | BigQuery dataset prepared for billing export. |  |  |
+| [cicd_repositories](outputs.tf#L156) | CI/CD repository configurations. |  |  |
+| [custom_roles](outputs.tf#L168) | Organization-level custom roles. |  |  |
+| [outputs_bucket](outputs.tf#L173) | GCS bucket where generated output files are stored. |  |  |
+| [project_ids](outputs.tf#L178) | Projects created by this stage. |  |  |
+| [providers](outputs.tf#L188) | Terraform provider files for this stage and dependent stages. | ✓ | <code>stage-01</code> |
+| [service_accounts](outputs.tf#L195) | Automation service accounts created by this stage. |  |  |
+| [tfvars](outputs.tf#L213) | Terraform variable files for the following stages. | ✓ |  |
+| [workforce_identity_pool](outputs.tf#L219) | Workforce Identity Federation pool. |  |  |
+| [workload_identity_pool](outputs.tf#L228) | Workload Identity Federation pool and providers. |  |  |
 <!-- END TFDOC -->

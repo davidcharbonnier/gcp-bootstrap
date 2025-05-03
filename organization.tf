@@ -125,7 +125,7 @@ module "organization-logging" {
   # specified by `var.locations.logging`. This separate
   # organization-block prevents circular dependencies with later
   # project creation.
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v33.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v34.1.0"
   organization_id = "organizations/${var.organization.id}"
   logging_settings = {
     storage_location = var.locations.logging
@@ -133,7 +133,7 @@ module "organization-logging" {
 }
 
 module "organization" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v33.0.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v34.1.0"
   organization_id = module.organization-logging.id
   # human (groups) IAM bindings
   iam_by_principals = {
@@ -181,6 +181,7 @@ module "organization" {
                 "roles/accesscontextmanager.policyAdmin",
                 "roles/cloudasset.viewer",
                 "roles/compute.orgFirewallPolicyAdmin",
+                "roles/compute.orgFirewallPolicyUser",
                 "roles/compute.xpnAdmin",
                 "roles/orgpolicy.policyAdmin",
                 "roles/orgpolicy.policyViewer",
@@ -189,6 +190,7 @@ module "organization" {
               , join(",", formatlist("'%s'", [
                 module.organization.custom_role_id["network_firewall_policies_admin"],
                 module.organization.custom_role_id["ngfw_enterprise_admin"],
+                module.organization.custom_role_id["ngfw_enterprise_viewer"],
                 module.organization.custom_role_id["service_project_network_admin"],
                 module.organization.custom_role_id["tenant_network_admin"]
               ]))
