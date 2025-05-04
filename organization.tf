@@ -49,7 +49,11 @@ locals {
     var.organization.customer_id == null ? [] : [var.organization.customer_id],
     var.org_policies_config.constraints.allowed_policy_member_domains
   )
-  drs_tag_name = "${var.organization.id}/${var.org_policies_config.tag_name}"
+  essential_contacts_domains = concat(
+    var.organization.domain == null ? [] : ["@${var.organization.domain}"],
+    [for d in var.org_policies_config.constraints.allowed_essential_contact_domains : "@${d}"]
+  )
+  org_policies_tag_name = "${var.organization.id}/${var.org_policies_config.tag_name}"
 
   # intermediate values before we merge in what comes from the checklist
   _iam_principals = {
@@ -112,7 +116,8 @@ import {
       "iam.allowedPolicyMemberDomains",
       "essentialcontacts.allowedContactDomains",
       "storage.uniformBucketLevelAccess",
-      # "compute.setNewProjectDefaultToZonalDNSOnly", # not confirmed, that this is already live
+      "compute.setNewProjectDefaultToZonalDNSOnly", # Verified as of 2024-09-13
+      # "constraints/compute.restrictProtocolForwardingCreationForTypes", # Officially be applied starting 2024-08-15, but still MIA as of 2024-09-13
     ])
   )
   id = "organizations/${var.organization.id}/policies/${each.key}"
@@ -125,7 +130,7 @@ module "organization-logging" {
   # specified by `var.locations.logging`. This separate
   # organization-block prevents circular dependencies with later
   # project creation.
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v34.1.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v35.1.0"
   organization_id = "organizations/${var.organization.id}"
   logging_settings = {
     storage_location = var.locations.logging
@@ -133,7 +138,7 @@ module "organization-logging" {
 }
 
 module "organization" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v34.1.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v35.1.0"
   organization_id = module.organization-logging.id
   # human (groups) IAM bindings
   iam_by_principals = {
@@ -233,16 +238,18 @@ module "organization" {
       destination          = local.log_sink_destinations[name].id
       filter               = attrs.filter
       type                 = attrs.type
+      disabled             = attrs.disabled
+      exclusions           = attrs.exclusions
     }
   }
   org_policies = var.bootstrap_user != null ? {} : {
-    "iam.allowedPolicyMemberDomains" = {
+    "essentialcontacts.allowedContactDomains" = {
       rules = [
         {
-          allow = { values = local.drs_domains }
+          allow = { values = local.essential_contacts_domains }
           condition = {
             expression = (
-              "!resource.matchTag('${local.drs_tag_name}', 'allowed-policy-member-domains-all')"
+              "!resource.matchTag('${local.org_policies_tag_name}', 'allowed-essential-contacts-domains-all')"
             )
           }
         },
@@ -250,7 +257,28 @@ module "organization" {
           allow = { all = true }
           condition = {
             expression = (
-              "resource.matchTag('${local.drs_tag_name}', 'allowed-policy-member-domains-all')"
+              "resource.matchTag('${local.org_policies_tag_name}', 'allowed-essential-contacts-domains-all')"
+            )
+            title = "allow-all"
+          }
+        },
+      ]
+    }
+    "iam.allowedPolicyMemberDomains" = {
+      rules = [
+        {
+          allow = { values = local.drs_domains }
+          condition = {
+            expression = (
+              "!resource.matchTag('${local.org_policies_tag_name}', 'allowed-policy-member-domains-all')"
+            )
+          }
+        },
+        {
+          allow = { all = true }
+          condition = {
+            expression = (
+              "resource.matchTag('${local.org_policies_tag_name}', 'allowed-policy-member-domains-all')"
             )
             title = "allow-all"
           }
@@ -266,7 +294,8 @@ module "organization" {
       iam         = {}
       values = merge(
         {
-          allowed-policy-member-domains-all = {}
+          allowed-essential-contacts-domains-all = {}
+          allowed-policy-member-domains-all      = {}
         },
         var.org_policies_config.tag_values
       )

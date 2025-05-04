@@ -128,7 +128,7 @@ check "checklist" {
 # checklist files bucket
 
 module "automation-tf-checklist-gcs" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v34.1.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v35.1.0"
   count      = local.uses_checklist ? 1 : 0
   project_id = module.automation-project.project_id
   name       = "iac-core-checklist-0"
