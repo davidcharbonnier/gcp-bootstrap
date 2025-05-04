@@ -39,9 +39,10 @@ locals {
       contains(
         keys(local.workload_identity_providers),
         coalesce(try(v.identity_provider, null), ":")
-        ) && (
-        try(v.type, "") == "terraform" ||
-        fileexists(format("${path.module}/templates/workflow-%s.yaml", try(v.type, "")))
+      )
+      &&
+      fileexists(
+        format("${path.module}/templates/workflow-%s.yaml", try(v.type, ""))
       )
     )
   }
@@ -75,12 +76,14 @@ locals {
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
-  for_each     = local.cicd_repositories
-  project_id   = module.automation-project.project_id
-  name         = "${each.key}-1"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
+  for_each   = local.cicd_repositories
+  project_id = module.automation-project.project_id
+  name = templatestring(
+    var.resource_names["sa-cicd_template"], { key = each.key }
+  )
   display_name = "Terraform CI/CD ${each.key} service account."
-  prefix       = local.prefix
+  prefix       = var.prefix
   iam = {
     "roles/iam.workloadIdentityUser" = [
       each.value.branch == null
@@ -88,12 +91,6 @@ module "automation-tf-cicd-sa" {
         local.workload_identity_providers_defs[each.value.type].principal_repo,
         google_iam_workload_identity_pool.default[0].name,
         each.value.name
-      )
-      : length(regexall("%s", local.workload_identity_providers_defs[each.value.type].principal_branch)) == 2
-      ? format(
-        local.workload_identity_providers_defs[each.value.type].principal_branch,
-        google_iam_workload_identity_pool.default[0].name,
-        each.value.branch
       )
       : format(
         local.workload_identity_providers_defs[each.value.type].principal_branch,
@@ -112,12 +109,14 @@ module "automation-tf-cicd-sa" {
 }
 
 module "automation-tf-cicd-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
-  for_each     = local.cicd_repositories
-  project_id   = module.automation-project.project_id
-  name         = "${each.key}-1r"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
+  for_each   = local.cicd_repositories
+  project_id = module.automation-project.project_id
+  name = templatestring(
+    var.resource_names["sa-cicd_template_ro"], { key = each.key }
+  )
   display_name = "Terraform CI/CD ${each.key} service account (read-only)."
-  prefix       = local.prefix
+  prefix       = var.prefix
   iam = {
     "roles/iam.workloadIdentityUser" = [
       format(

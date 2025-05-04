@@ -15,7 +15,6 @@
  */
 
 locals {
-  env_default = [for k, v in var.environments : k if v.is_default][0]
   principals = {
     for k, v in var.groups : k => (
       can(regex("^[a-zA-Z]+:", v))
@@ -26,9 +25,7 @@ locals {
   locations = {
     bq      = var.locations.bq
     gcs     = var.locations.gcs
-    logging = coalesce(try(local.checklist.location, null), var.locations.logging)
+    logging = var.locations.logging
     pubsub  = var.locations.pubsub
   }
-  # naming: environment used in most resource names
-  prefix = join("-", compact([var.prefix, local.env_default]))
 }

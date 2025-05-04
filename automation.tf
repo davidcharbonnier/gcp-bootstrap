@@ -1,5 +1,5 @@
 /**
- * Copyright 2024 Google LLC
+ * Copyright 2025 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,18 +26,23 @@ locals {
 }
 
 module "automation-project" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v35.1.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v36.2.0"
   billing_account = var.billing_account.id
-  name            = "iac-core-0"
+  name            = var.resource_names["project-automation"]
   parent = coalesce(
     var.project_parent_ids.automation, "organizations/${var.organization.id}"
   )
-  prefix = local.prefix
+  prefix = var.prefix
   contacts = (
     var.bootstrap_user != null || var.essential_contacts == null
     ? {}
     : { (var.essential_contacts) = ["ALL"] }
   )
+  factories_config = {
+    org_policies = (
+      var.bootstrap_user != null ? null : var.factories_config.org_policies_iac
+    )
+  }
   # human (groups) IAM bindings
   iam_by_principals = {
     (local.principals.gcp-devops) = [
@@ -117,17 +122,20 @@ module "automation-project" {
       role   = "roles/serviceusage.serviceUsageViewer"
     }
   }
-  org_policies = var.bootstrap_user != null ? {} : {
-    "compute.skipDefaultNetworkCreation" = {
-      rules = [{ enforce = true }]
+  org_policies = (
+    var.bootstrap_user != null || var.org_policies_config.iac_policy_member_domains == null
+    ? {}
+    : {
+      "iam.allowedPolicyMemberDomains" = {
+        inherit_from_parent = true
+        rules = [{
+          allow = {
+            values = var.org_policies_config.iac_policy_member_domains
+          }
+        }]
+      }
     }
-    "iam.automaticIamGrantsForDefaultServiceAccounts" = {
-      rules = [{ enforce = true }]
-    }
-    "iam.disableServiceAccountKeyCreation" = {
-      rules = [{ enforce = true }]
-    }
-  }
+  )
   services = concat(
     [
       "accesscontextmanager.googleapis.com",
@@ -172,11 +180,11 @@ module "automation-project" {
   logging_data_access = {
     "iam.googleapis.com" = {
       # ADMIN_READ captures impersonation and token generation/exchanges
-      ADMIN_READ = []
+      ADMIN_READ = {}
       # enable DATA_WRITE if you want to capture configuration changes
       # to IAM-related resources (roles, deny policies, service
       # accounts, identity pools, etc)
-      # DATA_WRITE = []
+      # DATA_WRITE = {}
     }
   }
 }
@@ -184,10 +192,10 @@ module "automation-project" {
 # output files bucket
 
 module "automation-tf-output-gcs" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v35.1.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v36.2.0"
   project_id = module.automation-project.project_id
-  name       = "iac-core-outputs-0"
-  prefix     = local.prefix
+  name       = var.resource_names["gcs-outputs"]
+  prefix     = var.prefix
   location   = local.locations.gcs
   versioning = true
   depends_on = [module.organization]
@@ -196,21 +204,21 @@ module "automation-tf-output-gcs" {
 # this stage's bucket and service account
 
 module "automation-tf-bootstrap-gcs" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v35.1.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v36.2.0"
   project_id = module.automation-project.project_id
-  name       = "iac-core-bootstrap-0"
-  prefix     = local.prefix
+  name       = var.resource_names["gcs-bootstrap"]
+  prefix     = var.prefix
   location   = local.locations.gcs
   versioning = true
   depends_on = [module.organization]
 }
 
 module "automation-tf-bootstrap-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
   project_id   = module.automation-project.project_id
-  name         = "bootstrap-0"
+  name         = var.resource_names["sa-bootstrap"]
   display_name = "Terraform organization bootstrap service account."
-  prefix       = local.prefix
+  prefix       = var.prefix
   # allow SA used by CI/CD workflow to impersonate this SA
   iam = {
     "roles/iam.serviceAccountTokenCreator" = compact([
@@ -223,11 +231,11 @@ module "automation-tf-bootstrap-sa" {
 }
 
 module "automation-tf-bootstrap-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
   project_id   = module.automation-project.project_id
-  name         = "bootstrap-0r"
+  name         = var.resource_names["sa-bootstrap_ro"]
   display_name = "Terraform organization bootstrap service account (read-only)."
-  prefix       = local.prefix
+  prefix       = var.prefix
   # allow SA used by CI/CD workflow to impersonate this SA
   iam = {
     "roles/iam.serviceAccountTokenCreator" = compact([
@@ -250,10 +258,10 @@ module "automation-tf-bootstrap-r-sa" {
 # resource hierarchy stage's bucket and service account
 
 module "automation-tf-resman-gcs" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v35.1.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v36.2.0"
   project_id = module.automation-project.project_id
-  name       = "iac-core-resman-0"
-  prefix     = local.prefix
+  name       = var.resource_names["gcs-resman"]
+  prefix     = var.prefix
   location   = local.locations.gcs
   versioning = true
   iam = {
@@ -264,11 +272,11 @@ module "automation-tf-resman-gcs" {
 }
 
 module "automation-tf-resman-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
   project_id   = module.automation-project.project_id
-  name         = "resman-0"
+  name         = var.resource_names["sa-resman"]
   display_name = "Terraform stage 1 resman service account."
-  prefix       = local.prefix
+  prefix       = var.prefix
   # allow SA used by CI/CD workflow to impersonate this SA
   # we use additive IAM to allow tenant CI/CD SAs to impersonate it
   iam_bindings_additive = merge(
@@ -291,11 +299,11 @@ module "automation-tf-resman-sa" {
 }
 
 module "automation-tf-resman-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
   project_id   = module.automation-project.project_id
-  name         = "resman-0r"
+  name         = var.resource_names["sa-resman_ro"]
   display_name = "Terraform stage 1 resman service account (read-only)."
-  prefix       = local.prefix
+  prefix       = var.prefix
   # allow SA used by CI/CD workflow to impersonate this SA
   # we use additive IAM to allow tenant CI/CD SAs to impersonate it
   iam_bindings_additive = merge(
@@ -328,10 +336,10 @@ module "automation-tf-resman-r-sa" {
 # VPC SC stage's bucket and service account
 
 module "automation-tf-vpcsc-gcs" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v35.1.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v36.2.0"
   project_id = module.automation-project.project_id
-  name       = "iac-core-vpcsc-0"
-  prefix     = local.prefix
+  name       = var.resource_names["gcs-vpcsc"]
+  prefix     = var.prefix
   location   = local.locations.gcs
   versioning = true
   iam = {
@@ -342,11 +350,11 @@ module "automation-tf-vpcsc-gcs" {
 }
 
 module "automation-tf-vpcsc-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
   project_id   = module.automation-project.project_id
-  name         = "vpcsc-0"
+  name         = var.resource_names["sa-vpcsc"]
   display_name = "Terraform stage 1 vpcsc service account."
-  prefix       = local.prefix
+  prefix       = var.prefix
   # allow SA used by CI/CD workflow to impersonate this SA
   # we use additive IAM to allow tenant CI/CD SAs to impersonate it
   iam_bindings_additive = merge(
@@ -369,11 +377,11 @@ module "automation-tf-vpcsc-sa" {
 }
 
 module "automation-tf-vpcsc-r-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v35.1.0"
+  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v36.2.0"
   project_id   = module.automation-project.project_id
-  name         = "vpcsc-0r"
+  name         = var.resource_names["sa-vpcsc_ro"]
   display_name = "Terraform stage 1 vpcsc service account (read-only)."
-  prefix       = local.prefix
+  prefix       = var.prefix
   # allow SA used by CI/CD workflow to impersonate this SA
   # we use additive IAM to allow tenant CI/CD SAs to impersonate it
   iam_bindings_additive = local.cicd_vpcsc_r_sa == "" ? {} : {

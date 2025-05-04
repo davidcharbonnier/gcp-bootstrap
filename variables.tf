@@ -17,53 +17,28 @@
 variable "billing_account" {
   description = "Billing account id. If billing account is not part of the same org set `is_org_level` to `false`. To disable handling of billing IAM roles set `no_iam` to `true`."
   type = object({
-    id           = string
+    id = string
+    force_create = optional(object({
+      dataset = optional(bool, false)
+      project = optional(bool, false)
+    }), {})
     is_org_level = optional(bool, true)
     no_iam       = optional(bool, false)
   })
   nullable = false
+  validation {
+    condition = (
+      var.billing_account.force_create.dataset != true ||
+      var.billing_account.force_create.project == true
+    )
+    error_message = "Forced dataset creation also needs project creation."
+  }
 }
 
 variable "bootstrap_user" {
   description = "Email of the nominal user running this stage for the first time."
   type        = string
   default     = null
-}
-
-variable "cicd_backends" {
-  description = "CI/CD backend configuration. Leave null to use GCS buckets for state."
-  type = object({
-    terraform = optional(object({
-      organization = string
-      workspaces = map(object({
-        tags    = optional(list(string), null)
-        name    = optional(string, null)
-        project = optional(string, null)
-      }))
-      hostname = optional(string, null)
-    }))
-  })
-  default = null
-  validation {
-    condition = (
-      var.cicd_backends == null ||
-      (
-        length([for k, v in coalesce(var.cicd_backends, {}) : true if v != null]) == 1
-      )
-    )
-    error_message = "cicd_backends must be either null or contain exactly one backend configuration."
-  }
-  validation {
-    condition = (
-      var.cicd_backends == null ||
-      try(var.cicd_backends.terraform, null) == null ||
-      alltrue([
-        for k, v in try(var.cicd_backends.terraform.workspaces, {}) :
-        v.tags != null || v.name != null || v.project != null
-      ])
-    )
-    error_message = "At least one of 'tags', 'name', or 'project' must be defined for each workspace in the 'workspaces' map when 'terraform' is defined."
-  }
 }
 
 variable "cicd_repositories" {
@@ -128,10 +103,12 @@ variable "custom_roles" {
 }
 
 variable "environments" {
-  description = "Environment names."
+  description = "Environment names. When not defined, short name is set to the key and tag name to lower(name)."
   type = map(object({
     name       = string
     is_default = optional(bool, false)
+    short_name = optional(string)
+    tag_name   = optional(string)
   }))
   nullable = false
   default = {
@@ -149,6 +126,14 @@ variable "environments" {
     ])
     error_message = "At least one environment should be marked as default."
   }
+  validation {
+    condition = alltrue([
+      for k, v in var.environments : join(" ", regexall(
+        "[a-zA-Z][a-zA-Z0-9\\s-]+[a-zA-Z0-9]", v.name
+      )) == v.name
+    ])
+    error_message = "Environment names can only contain letters numbers dashes or spaces."
+  }
 }
 
 variable "essential_contacts" {
@@ -160,10 +145,9 @@ variable "essential_contacts" {
 variable "factories_config" {
   description = "Configuration for the resource factories or external data."
   type = object({
-    checklist_data    = optional(string)
-    checklist_org_iam = optional(string)
-    custom_roles      = optional(string, "data/custom-roles")
-    org_policy        = optional(string, "data/org-policies")
+    custom_roles     = optional(string, "data/custom-roles")
+    org_policies     = optional(string, "data/org-policies")
+    org_policies_iac = optional(string, "data/org-policies-iac")
   })
   nullable = false
   default  = {}
@@ -239,6 +223,8 @@ variable "log_sinks" {
   nullable = false
   default = {
     audit-logs = {
+      # activity logs include Google Workspace / Cloud Identity logs
+      # exclude them via additional filter stanza if needed
       filter = <<-FILTER
         log_id("cloudaudit.googleapis.com/activity") OR
         log_id("cloudaudit.googleapis.com/system_event") OR
@@ -266,7 +252,8 @@ variable "log_sinks" {
     }
     workspace-audit-logs = {
       filter = <<-FILTER
-        log_id("cloudaudit.googleapis.com/data_access") AND
+        protoPayload.serviceName="admin.googleapis.com" OR
+        protoPayload.serviceName="cloudidentity.googleapis.com" OR
         protoPayload.serviceName="login.googleapis.com"
       FILTER
       type   = "logging"
@@ -284,6 +271,7 @@ variable "log_sinks" {
 variable "org_policies_config" {
   description = "Organization policies customization."
   type = object({
+    iac_policy_member_domains = optional(list(string))
     constraints = optional(object({
       allowed_essential_contact_domains = optional(list(string), [])
       allowed_policy_member_domains     = optional(list(string), [])
@@ -332,6 +320,38 @@ variable "project_parent_ids" {
   })
   default  = {}
   nullable = false
+}
+
+variable "resource_names" {
+  description = "Resource names overrides for specific resources. Prefix is always set via code, except where noted in the variable type."
+  type = object({
+    bq-billing           = optional(string, "billing_export")
+    bq-logs              = optional(string, "logs")
+    gcs-bootstrap        = optional(string, "prod-iac-core-bootstrap-0")
+    gcs-logs             = optional(string, "prod-logs")
+    gcs-outputs          = optional(string, "prod-iac-core-outputs-0")
+    gcs-resman           = optional(string, "prod-iac-core-resman-0")
+    gcs-vpcsc            = optional(string, "prod-iac-core-vpcsc-0")
+    project-automation   = optional(string, "prod-iac-core-0")
+    project-billing      = optional(string, "prod-billing-exp-0")
+    project-logs         = optional(string, "prod-audit-logs-0")
+    pubsub-logs_template = optional(string, "$${key}")
+    sa-bootstrap         = optional(string, "prod-bootstrap-0")
+    sa-bootstrap_ro      = optional(string, "prod-bootstrap-0r")
+    sa-cicd_template     = optional(string, "prod-$${key}-1")
+    sa-cicd_template_ro  = optional(string, "prod-$${key}-1r")
+    sa-resman            = optional(string, "prod-resman-0")
+    sa-resman_ro         = optional(string, "prod-resman-0r")
+    sa-vpcsc             = optional(string, "prod-vpcsc-0")
+    sa-vpcsc_ro          = optional(string, "prod-vpcsc-0r")
+    # the identity provider resources also interpolate prefix
+    wf-bootstrap          = optional(string, "$${prefix}-bootstrap")
+    wf-provider_template  = optional(string, "$${prefix}-bootstrap-$${key}")
+    wif-bootstrap         = optional(string, "$${prefix}-bootstrap")
+    wif-provider_template = optional(string, "$${prefix}-bootstrap-$${key}")
+  })
+  nullable = false
+  default  = {}
 }
 
 variable "workforce_identity_providers" {
