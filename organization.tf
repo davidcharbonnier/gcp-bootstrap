@@ -103,7 +103,7 @@ module "organization-logging" {
   # specified by `var.locations.logging`. This separate
   # organization-block prevents circular dependencies with later
   # project creation.
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v36.2.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v37.4.0"
   organization_id = "organizations/${var.organization.id}"
   logging_settings = {
     storage_location = var.locations.logging
@@ -111,7 +111,7 @@ module "organization-logging" {
 }
 
 module "organization" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v36.2.0"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v37.4.0"
   organization_id = module.organization-logging.id
   # human (groups) IAM bindings
   iam_by_principals = {

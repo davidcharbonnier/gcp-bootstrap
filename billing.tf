@@ -38,7 +38,7 @@ locals {
 # billing account in same org (IAM is in the organization.tf file)
 
 module "billing-export-project" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v36.2.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v37.4.0"
   count = (
     local.billing_mode == "org" || var.billing_account.force_create.project == true ? 1 : 0
   )
@@ -68,7 +68,7 @@ module "billing-export-project" {
 }
 
 module "billing-export-dataset" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v36.2.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v37.4.0"
   count = (
     local.billing_mode == "org" || var.billing_account.force_create.dataset == true ? 1 : 0
   )

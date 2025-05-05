@@ -28,18 +28,22 @@ workload_identity_providers = {
   }
 }
 
-cicd_repositories = {
+cicd_config = {
   bootstrap = {
-    branch            = null
     identity_provider = "github"
-    name              = "davidcharbonnier/gcp-bootstrap"
-    type              = "github"
+    repository = {
+      name   = "davidcharbonnier/gcp-bootstrap"
+      branch = null
+      type   = "github"
+    }
   }
   resman = {
-    branch            = null
     identity_provider = "github"
-    name              = "davidcharbonnier/gcp-resman"
-    type              = "github"
+    repository = {
+      name   = "davidcharbonnier/gcp-resman"
+      branch = null
+      type   = "github"
+    }
   }
 }
 
