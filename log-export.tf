@@ -1,5 +1,5 @@
 /**
- * Copyright 2024 Google LLC
+ * Copyright 2025 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,11 @@
 
 locals {
   log_sink_destinations = merge(
+    {
+      for k, v in var.log_sinks : k => {
+        id = module.log-export-project.project_id
+      } if v.type == "project"
+    },
     # use the same dataset for all sinks with `bigquery` as  destination
     {
       for k, v in var.log_sinks :
@@ -37,12 +42,13 @@ locals {
 }
 
 module "log-export-project" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v37.4.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v38.2.0"
   name   = var.resource_names["project-logs"]
   parent = coalesce(
     var.project_parent_ids.logging, "organizations/${var.organization.id}"
   )
   prefix          = var.prefix
+  universe        = var.universe
   billing_account = var.billing_account.id
   contacts = (
     var.bootstrap_user != null || var.essential_contacts == null
@@ -66,7 +72,7 @@ module "log-export-project" {
 # one log export per type, with conditionals to skip those not needed
 
 module "log-export-dataset" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v37.4.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v38.2.0"
   count         = contains(local.log_types, "bigquery") ? 1 : 0
   project_id    = module.log-export-project.project_id
   id            = var.resource_names["bq-logs"]
@@ -75,7 +81,7 @@ module "log-export-dataset" {
 }
 
 module "log-export-gcs" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v37.4.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/gcs?ref=v38.2.0"
   count      = contains(local.log_types, "storage") ? 1 : 0
   project_id = module.log-export-project.project_id
   name       = var.resource_names["gcs-logs"]
@@ -84,7 +90,7 @@ module "log-export-gcs" {
 }
 
 module "log-export-logbucket" {
-  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/logging-bucket?ref=v37.4.0"
+  source        = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/logging-bucket?ref=v38.2.0"
   for_each      = toset([for k, v in var.log_sinks : k if v.type == "logging"])
   parent_type   = "project"
   parent        = module.log-export-project.project_id
@@ -96,7 +102,7 @@ module "log-export-logbucket" {
 }
 
 module "log-export-pubsub" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/pubsub?ref=v37.4.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/pubsub?ref=v38.2.0"
   for_each   = toset([for k, v in var.log_sinks : k if v.type == "pubsub"])
   project_id = module.log-export-project.project_id
   name = templatestring(

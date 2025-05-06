@@ -18,13 +18,13 @@
 
 # yaml-language-server: $schema=../../schemas/org-policies.schema.json
 
-compute.disableGuestAttributesAccess:
-  rules:
-    - enforce: true
-
 compute.disableInternetNetworkEndpointGroup:
   rules:
   - enforce: true
+
+compute.disableGuestAttributesAccess:
+  rules:
+    - enforce: true
 
 compute.disableNestedVirtualization:
   rules:
@@ -105,11 +105,11 @@ compute.vmExternalIpAccess:
 #   - deny:
 #       all: true
 
-compute.restrictProtocolForwardingCreationForTypes:
+compute.managed.restrictProtocolForwardingCreationForTypes:
   rules:
-    - allow:
-        values:
-          - INTERNAL
+  - enforce: true
+    parameters: |
+      {"allowedSchemes": ["INTERNAL"]}
 
 # compute.restrictSharedVpcHostProjects:
 #   rules:

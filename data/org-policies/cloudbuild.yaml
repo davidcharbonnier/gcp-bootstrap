@@ -18,50 +18,19 @@
 
 # yaml-language-server: $schema=../../schemas/org-policies.schema.json
 
-iam.allowedPolicyMemberDomains:
-  rules:
-    - allow:
-        values:
-          - ${organization.customer_id}
-      condition:
-        title: Restrict member domains
-        expression: |
-          !resource.matchTag('${tags.org_policies_tag_name}', 'allowed-policy-member-domains-all')
-    - allow:
-        all: true
-      condition:
-        title: Allow any member domain
-        expression: |
-          resource.matchTag('${tags.org_policies_tag_name}', 'allowed-policy-member-domains-all')
-
-iam.automaticIamGrantsForDefaultServiceAccounts:
+compute.disableGuestAttributesAccess:
   rules:
     - enforce: true
 
-iam.disableAuditLoggingExemption:
+cloudbuild.disableCreateDefaultServiceAccount:
   rules:
     - enforce: true
-
-iam.disableServiceAccountKeyCreation:
+    
+cloudbuild.useBuildServiceAccount: 
   rules:
     - enforce: true
-
-iam.disableServiceAccountKeyUpload:
+    
+cloudbuild.useComputeServiceAccount:
   rules:
     - enforce: true
-
-iam.serviceAccountKeyExposureResponse:
-  rules:
-    - allow:
-        values:
-          - DISABLE_KEY
-
-iam.workloadIdentityPoolAwsAccounts:
-  rules:
-    - deny:
-        all: true
-
-iam.workloadIdentityPoolProviders:
-  rules:
-    - deny:
-        all: true
+    

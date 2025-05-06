@@ -68,7 +68,7 @@ locals {
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v37.4.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v38.2.0"
   for_each   = local.cicd_repositories
   project_id = module.automation-project.project_id
   name = templatestring(
@@ -101,7 +101,7 @@ module "automation-tf-cicd-sa" {
 }
 
 module "automation-tf-cicd-r-sa" {
-  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v37.4.0"
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v38.2.0"
   for_each   = local.cicd_repositories
   project_id = module.automation-project.project_id
   name = templatestring(

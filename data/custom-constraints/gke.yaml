@@ -1,4 +1,4 @@
-# Copyright 2023 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,19 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# yaml-language-server: $schema=../../schemas/custom-role.schema.json
+# yaml-language-server: $schema=../../schemas/org-policy-custom-constraint.schema.json
 
-name: billingViewer
-includedPermissions:
-- billing.accounts.get
-- billing.accounts.getIamPolicy
-- billing.accounts.getSpendingInformation
-- billing.accounts.getUsageExportSpec
-- billing.accounts.list
-- billing.budgets.get
-- billing.budgets.list
-- billing.budgets.update
-- billing.credits.list
-- billing.resourceAssociations.list
-- recommender.costInsights.get
-- recommender.costInsights.list
+custom.disableKubeletReadOnlyPort:
+  resource_types:
+    - container.googleapis.com/Cluster
+  method_types:
+    - CREATE
+    - UPDATE
+  condition: resource.nodeConfig.kubeletConfig.insecureKubeletReadonlyPortEnabled == true
+  action_type: DENY
+  display_name: Disable Kubelet Read-Only Port 10255
+  description: Disallows the use of Kubelet read-only port 10255 to enhance security

@@ -1,5 +1,5 @@
 /**
- * Copyright 2024 Google LLC
+ * Copyright 2025 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ locals {
 # billing account in same org (IAM is in the organization.tf file)
 
 module "billing-export-project" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v37.4.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/project?ref=v38.2.0"
   count = (
     local.billing_mode == "org" || var.billing_account.force_create.project == true ? 1 : 0
   )
@@ -47,7 +47,8 @@ module "billing-export-project" {
   parent = coalesce(
     var.project_parent_ids.billing, "organizations/${var.organization.id}"
   )
-  prefix = var.prefix
+  prefix   = var.prefix
+  universe = var.universe
   contacts = (
     var.bootstrap_user != null || var.essential_contacts == null
     ? {}
@@ -68,7 +69,7 @@ module "billing-export-project" {
 }
 
 module "billing-export-dataset" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v37.4.0"
+  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/bigquery-dataset?ref=v38.2.0"
   count = (
     local.billing_mode == "org" || var.billing_account.force_create.dataset == true ? 1 : 0
   )
