@@ -1,5 +1,5 @@
 /**
- * Copyright 2023 Google LLC
+ * Copyright 2025 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,219 +17,215 @@
 # tfdoc:file:description Organization-level IAM.
 
 locals {
-  # organization authoritative IAM bindings, in an easy to edit format before
-  # they are combined with var.iam a bit further in locals
-  _iam = {
-    "roles/billing.creator" = []
-    "roles/browser" = [
-      "domain:${var.organization.domain}"
-    ]
-    "roles/logging.admin" = concat(
-      [
-        module.automation-tf-bootstrap-sa.iam_email,
-        module.automation-tf-resman-sa.iam_email
-      ],
-      local._iam_bootstrap_user
-    )
-    "roles/owner" = local._iam_bootstrap_user
-    "roles/resourcemanager.folderAdmin" = [
-      module.automation-tf-resman-sa.iam_email
-    ]
-    "roles/resourcemanager.organizationAdmin" = concat(
-      [module.automation-tf-bootstrap-sa.iam_email],
-      local._iam_bootstrap_user
-    )
-    "roles/resourcemanager.projectCreator" = concat(
-      [
-        module.automation-tf-bootstrap-sa.iam_email,
-        module.automation-tf-resman-sa.iam_email
-      ],
-      local._iam_bootstrap_user
-    )
-    "roles/resourcemanager.projectMover" = [
-      module.automation-tf-bootstrap-sa.iam_email
-    ]
-    "roles/resourcemanager.tagAdmin" = [
-      module.automation-tf-resman-sa.iam_email
-    ]
-    "roles/resourcemanager.tagUser" = [
-      module.automation-tf-resman-sa.iam_email
-    ]
-  }
-  # organization additive IAM bindings, in an easy to edit format before
-  # they are combined with var.iam_additive a bit further in locals
-  _iam_additive = merge(
+  # reassemble logical bindings into the formats expected by the module
+  _iam_bindings = merge(
+    local.iam_domain_bindings,
+    local.iam_sa_bindings,
+    local.iam_user_bootstrap_bindings,
     {
-      "roles/accesscontextmanager.policyAdmin" = [
-        local.groups_iam.gcp-security-admins
-      ]
-      "roles/compute.orgFirewallPolicyAdmin" = [
-        local.groups_iam.gcp-network-admins
-      ]
-      "roles/compute.xpnAdmin" = [
-        local.groups_iam.gcp-network-admins
-      ]
-      # use additive to support cross-org roles for billing
-      "roles/iam.organizationRoleAdmin" = [
-        # uncomment if roles/owner is removed to organization admins
-        # local.groups.gcp-organization-admins,
-        local.groups_iam.gcp-security-admins,
-        module.automation-tf-bootstrap-sa.iam_email
-      ]
-      "roles/orgpolicy.policyAdmin" = [
-        local.groups_iam.gcp-organization-admins,
-        local.groups_iam.gcp-security-admins,
-        module.automation-tf-resman-sa.iam_email
-      ]
-      # the following is useful if roles/browser is not desirable
-      # "roles/resourcemanager.organizationViewer" = [
-      #   "domain:${var.organization.domain}"
-      # ]
+      for k, v in local.iam_principal_bindings : k => {
+        authoritative = []
+        additive      = v.additive
+      }
+    }
+  )
+  _iam_bindings_auth = flatten([
+    for member, data in local._iam_bindings : [
+      for role in data.authoritative : {
+        member = member
+        role   = role
+      }
+    ]
+  ])
+  _iam_bindings_add = flatten([
+    for member, data in local._iam_bindings : [
+      for role in data.additive : {
+        member = member
+        role   = role
+      }
+    ]
+  ])
+  org_policies_tag_name = "${var.organization.id}/${var.org_policies_config.tag_name}"
+  iam_principals = {
+    for k, v in local.iam_principal_bindings : k => v.authoritative
+  }
+  iam = merge(
+    {
+      for r in local.iam_delete_roles : r => []
     },
-    local.billing_mode == "org" ? {
-      "roles/billing.admin" = [
-        local.groups_iam.gcp-billing-admins,
-        local.groups_iam.gcp-organization-admins,
-        module.automation-tf-bootstrap-sa.iam_email,
-        module.automation-tf-resman-sa.iam_email
-      ],
-      "roles/billing.costsManager" = [
-        local.groups_iam.gcp-billing-admins,
-        local.groups_iam.gcp-organization-admins,
-        module.automation-tf-bootstrap-sa.iam_email,
-        module.automation-tf-resman-sa.iam_email
-      ]
-    } : {}
+    {
+      for b in local._iam_bindings_auth : b.role => b.member...
+    }
   )
-  _iam_bootstrap_user = (
-    var.bootstrap_user == null ? [] : ["user:${var.bootstrap_user}"]
+  iam_bindings_additive = {
+    for b in local._iam_bindings_add : "${b.role}-${b.member}" => {
+      member = b.member
+      role   = b.role
+    }
+  }
+}
+
+# TODO: add a check block to ensure our custom roles exist in the factory files
+
+# import org policy constraints enabled by default in new orgs since February 2024
+import {
+  for_each = (
+    !var.org_policies_config.import_defaults || var.bootstrap_user != null
+    ? toset([])
+    : toset([
+      # source: https://cloud.google.com/resource-manager/docs/secure-by-default-organizations#organization_policies_enforced_on_organization_resources
+      # listed in the order as on page
+      "iam.disableServiceAccountKeyCreation",
+      "iam.disableServiceAccountKeyUpload",
+      "iam.automaticIamGrantsForDefaultServiceAccounts",
+      "iam.allowedPolicyMemberDomains",
+      "essentialcontacts.allowedContactDomains",
+      "storage.uniformBucketLevelAccess",
+      "compute.setNewProjectDefaultToZonalDNSOnly",         # Verified as of 2024-09-13
+      "compute.restrictProtocolForwardingCreationForTypes", # Verified as of 2025-02-13
+    ])
   )
-  iam = {
-    for role in local.iam_roles : role => distinct(concat(
-      try(sort(local._iam[role]), []),
-      try(sort(var.iam[role]), [])
-    ))
+  id = "organizations/${var.organization.id}/policies/${each.key}"
+  to = module.organization.google_org_policy_policy.default[each.key]
+}
+
+module "organization-logging" {
+  # Preconfigure organization-wide logging settings to ensure project
+  # log buckets (_Default, _Required) are created in the location
+  # specified by `var.locations.logging`. This separate
+  # organization-block prevents circular dependencies with later
+  # project creation.
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v38.2.0"
+  organization_id = "organizations/${var.organization.id}"
+  logging_settings = {
+    storage_location = var.locations.logging
   }
-  iam_additive = {
-    for role in local.iam_roles_additive : role => distinct(concat(
-      try(sort(local._iam_additive[role]), []),
-      try(sort(var.iam_additive[role]), [])
-    ))
-  }
-  iam_roles = distinct(concat(
-    keys(local._iam), keys(var.iam)
-  ))
-  iam_roles_additive = distinct(concat(
-    keys(local._iam_additive), keys(var.iam_additive)
-  ))
 }
 
 module "organization" {
-  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v25.0.0"
-  organization_id = "organizations/${var.organization.id}"
+  source          = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/organization?ref=v38.2.0"
+  organization_id = module.organization-logging.id
   # human (groups) IAM bindings
-  group_iam = {
-    (local.groups.gcp-organization-admins) = [
-      "roles/cloudasset.owner",
-      "roles/cloudsupport.admin",
-      "roles/compute.osAdminLogin",
-      "roles/compute.osLoginExternalUser",
-      "roles/owner",
-      # granted via additive roles
-      # roles/iam.organizationRoleAdmin
-      # roles/orgpolicy.policyAdmin
-      "roles/resourcemanager.folderAdmin",
-      "roles/resourcemanager.organizationAdmin",
-      "roles/resourcemanager.projectCreator",
-    ],
-    (local.groups.gcp-network-admins) = [
-      "roles/cloudasset.owner",
-      "roles/cloudsupport.techSupportEditor",
-    ]
-    (local.groups.gcp-security-admins) = [
-      "roles/cloudasset.owner",
-      "roles/cloudsupport.techSupportEditor",
-      "roles/iam.securityReviewer",
-      "roles/logging.admin",
-      "roles/securitycenter.admin",
-    ],
-    (local.groups.gcp-support) = [
-      "roles/cloudsupport.techSupportEditor",
-      "roles/logging.viewer",
-      "roles/monitoring.viewer",
-    ]
+  iam_by_principals = {
+    for key in distinct(concat(
+      keys(local.iam_principals),
+      keys(var.iam_by_principals),
+    )) :
+    key => distinct(concat(
+      lookup(local.iam_principals, key, []),
+      lookup(var.iam_by_principals, key, []),
+    ))
   }
   # machine (service accounts) IAM bindings
-  iam = local.iam
+  iam = merge(
+    {
+      for k, v in local.iam : k => distinct(concat(v, lookup(var.iam, k, [])))
+    },
+    {
+      for k, v in var.iam : k => v if lookup(local.iam, k, null) == null
+    }
+  )
   # additive bindings, used for roles co-managed by different stages
-  iam_additive = local.iam_additive
-  custom_roles = merge(var.custom_roles, {
-    # this is needed for use in additive IAM bindings, to avoid conflicts
-    (var.custom_role_names.organization_iam_admin) = [
-      "resourcemanager.organizations.get",
-      "resourcemanager.organizations.getIamPolicy",
-      "resourcemanager.organizations.setIamPolicy"
-    ]
-    (var.custom_role_names.service_project_network_admin) = [
-      "compute.globalOperations.get",
-      # compute.networks.updatePeering and compute.networks.get are
-      # used by automation service accounts who manage service
-      # projects where peering creation might be needed (e.g. GKE). If
-      # you remove them your network administrators should create
-      # peerings for service projects
-      "compute.networks.updatePeering",
-      "compute.networks.get",
-      "compute.organizations.disableXpnResource",
-      "compute.organizations.enableXpnResource",
-      "compute.projects.get",
-      "compute.subnetworks.getIamPolicy",
-      "compute.subnetworks.setIamPolicy",
-      "dns.networks.bindPrivateDNSZone",
-      "resourcemanager.projects.get",
-    ]
-    (var.custom_role_names.tenant_network_admin) = [
-      "compute.globalOperations.get",
-    ]
-  })
+  iam_bindings_additive = merge(
+    local.iam_bindings_additive,
+    var.iam_bindings_additive
+  )
+  # delegated role grant for resource manager service account
+  iam_bindings = merge(
+    {
+      organization_iam_admin_conditional = {
+        members = [module.automation-tf-resman-sa.iam_email]
+        role    = module.organization.custom_role_id["organization_iam_admin"]
+        condition = {
+          expression = (
+            format(
+              <<-EOT
+              api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([%s])
+              || api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([%s])
+              EOT
+              , join(",", formatlist("'%s'", [
+                "roles/accesscontextmanager.policyAdmin",
+                "roles/cloudasset.viewer",
+                "roles/compute.orgFirewallPolicyAdmin",
+                "roles/compute.orgFirewallPolicyUser",
+                "roles/compute.xpnAdmin",
+                "roles/orgpolicy.policyAdmin",
+                "roles/orgpolicy.policyViewer",
+                "roles/resourcemanager.organizationViewer"
+              ]))
+              , join(",", formatlist("'%s'", [
+                module.organization.custom_role_id["billing_viewer"],
+                module.organization.custom_role_id["network_firewall_policies_admin"],
+                module.organization.custom_role_id["ngfw_enterprise_admin"],
+                module.organization.custom_role_id["ngfw_enterprise_viewer"],
+                module.organization.custom_role_id["service_project_network_admin"],
+                module.organization.custom_role_id["tenant_network_admin"]
+              ]))
+            )
+          )
+          title       = "automation_sa_delegated_grants"
+          description = "Automation service account delegated grants."
+        }
+      }
+    },
+    local.billing_mode != "org" ? {} : {
+      organization_billing_conditional = {
+        members = [module.automation-tf-resman-sa.iam_email]
+        role    = module.organization.custom_role_id["organization_iam_admin"]
+        condition = {
+          expression = format(
+            "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([%s])",
+            join(",", formatlist("'%s'", [
+              "roles/billing.admin",
+              "roles/billing.costsManager",
+              "roles/billing.user",
+            ]))
+          )
+          title       = "automation_sa_delegated_grants"
+          description = "Automation service account delegated grants."
+        }
+      }
+    }
+  )
+  custom_roles = var.custom_roles
+  factories_config = {
+    custom_roles = var.factories_config.custom_roles
+    org_policy_custom_constraints = (
+      var.bootstrap_user != null ? null : var.factories_config.custom_constraints
+    )
+    org_policies = (
+      var.bootstrap_user != null ? null : var.factories_config.org_policies
+    )
+    context = {
+      org_policies = {
+        organization = var.organization
+        tags = {
+          org_policies_tag_name = local.org_policies_tag_name
+        }
+      }
+    }
+  }
   logging_sinks = {
     for name, attrs in var.log_sinks : name => {
       bq_partitioned_table = attrs.type == "bigquery"
       destination          = local.log_sink_destinations[name].id
       filter               = attrs.filter
       type                 = attrs.type
+      disabled             = attrs.disabled
+      exclusions           = attrs.exclusions
     }
   }
-}
-
-# assign the custom restricted Organization Admin role to the relevant service
-# accounts, with a condition that only enables granting specific roles;
-# these roles use additive bindings everywhere to avoid conflicts / permadiffs
-
-resource "google_organization_iam_binding" "org_admin_delegated" {
-  org_id  = var.organization.id
-  role    = module.organization.custom_role_id[var.custom_role_names.organization_iam_admin]
-  members = [module.automation-tf-resman-sa.iam_email]
-  condition {
-    title       = "automation_sa_delegated_grants"
-    description = "Automation service account delegated grants."
-    expression = format(
-      "api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly([%s])",
-      join(",", formatlist("'%s'", concat(
-        [
-          "roles/accesscontextmanager.policyAdmin",
-          "roles/compute.orgFirewallPolicyAdmin",
-          "roles/compute.xpnAdmin",
-          "roles/orgpolicy.policyAdmin",
-          "roles/resourcemanager.organizationViewer",
-          module.organization.custom_role_id[var.custom_role_names.tenant_network_admin]
-        ],
-        local.billing_mode == "org" ? [
-          "roles/billing.admin",
-          "roles/billing.costsManager",
-          "roles/billing.user",
-        ] : []
-      )))
-    )
+  tags = {
+    (var.org_policies_config.tag_name) = {
+      description = "Organization policy conditions."
+      iam         = {}
+      values = merge(
+        {
+          allowed-essential-contacts-domains-all = {}
+          allowed-policy-member-domains-all      = {}
+        },
+        var.org_policies_config.tag_values
+      )
+    }
   }
-  depends_on = [module.organization]
 }

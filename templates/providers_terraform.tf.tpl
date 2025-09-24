@@ -15,25 +15,30 @@
  */
 
 terraform {
-  backend "gcs" {
-    bucket                      = "${bucket}"
-    impersonate_service_account = "${sa}"
-    %{~ for k, v in coalesce(backend_extra, {}) ~}
-    ${k} = ${jsonencode(v)}
-    %{~ endfor ~}
+  cloud {
+    organization = "${organization}"
+    %{~ if hostname != null ~}
+    hostname = "${hostname}"
+    %{~ endif ~}
+    workspaces {
+      %{~ if workspaces.name != null ~}
+      name  = "${workspaces.name}"
+      %{~ endif ~}
+      %{~ if workspaces.tags != null ~}
+      tags = [ %{ for tags in workspaces.tags ~} "${tags}", %{ endfor ~} ]
+      %{~ endif ~}
+      %{~ if workspaces.project != null ~}
+      project = "${workspaces.project}"
+      %{~ endif ~}
+    }
   }
 }
+
 provider "google" {
   impersonate_service_account = "${sa}"
-  %{~ for k, v in coalesce(provider_extra, {}) ~}
-  ${k} = ${jsonencode(v)}
-  %{~ endfor ~}
 }
 provider "google-beta" {
   impersonate_service_account = "${sa}"
-  %{~ for k, v in coalesce(provider_extra, {}) ~}
-  ${k} = ${jsonencode(v)}
-  %{~ endfor ~}
 }
 
 # end provider.tf for ${name}

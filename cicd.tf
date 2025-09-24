@@ -1,5 +1,5 @@
 /**
- * Copyright 2023 Google LLC
+ * Copyright 2024 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,116 +14,110 @@
  * limitations under the License.
  */
 
-# tfdoc:file:description Workload Identity Federation configurations for CI/CD.
+# tfdoc:file:description CI/CD locals and resources.
 
 locals {
+  _cicd_configs = merge(
+    # stages
+    {
+      for k, v in var.cicd_config : k => merge(v, {
+        level = k == "bootstrap" ? 0 : 1
+        stage = k
+      }) if v != null
+    },
+    # addons
+    {
+      for k, v in var.fast_addon : k => merge(v.cicd_config, {
+        level = 1
+        stage = substr(v.parent_stage, 2, -1)
+      }) if v.cicd_config != null
+    }
+  )
   cicd_providers = {
     for k, v in google_iam_workload_identity_pool_provider.default :
     k => {
-      audience = try(
-        v.oidc[0].allowed_audiences[0],
-        "https://iam.googleapis.com/${v.name}"
+      audiences = concat(
+        v.oidc[0].allowed_audiences,
+        ["https://iam.googleapis.com/${v.name}"]
       )
-      issuer           = local.identity_providers[k].issuer
+      issuer           = local.workload_identity_providers[k].issuer
       issuer_uri       = try(v.oidc[0].issuer_uri, null)
       name             = v.name
-      principal_tpl    = local.identity_providers[k].principal_tpl
-      principalset_tpl = local.identity_providers[k].principalset_tpl
+      principal_branch = local.workload_identity_providers[k].principal_branch
+      principal_repo   = local.workload_identity_providers[k].principal_repo
     }
   }
   cicd_repositories = {
-    for k, v in coalesce(var.cicd_repositories, {}) : k => v
-    if(
-      v != null
-      &&
-      (
-        try(v.type, null) == "sourcerepo"
-        ||
-        contains(keys(local.identity_providers), coalesce(try(v.identity_provider, null), ":"))
-      )
-      &&
-      fileexists(format("${path.module}/templates/workflow-%s.yaml", try(v.type, "")))
+    for k, v in local._cicd_configs : k => v if(
+      contains(keys(local.workload_identity_providers), v.identity_provider) &&
+      fileexists("${path.module}/templates/workflow-${v.repository.type}.yaml")
     )
   }
-  cicd_workflow_providers = {
-    bootstrap = "0-bootstrap-providers.tf"
-    resman    = "1-resman-providers.tf"
-  }
-  cicd_workflow_var_files = {
-    bootstrap = []
-    resman = [
-      "0-bootstrap.auto.tfvars.json",
-      "globals.auto.tfvars.json"
-    ]
-  }
-}
-
-# source repository
-
-module "automation-tf-cicd-repo" {
-  source = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/source-repository?ref=v25.0.0"
-  for_each = {
-    for k, v in local.cicd_repositories : k => v if v.type == "sourcerepo"
-  }
-  project_id = module.automation-project.project_id
-  name       = each.value.name
-  iam = {
-    "roles/source.admin" = [
-      each.key == "bootstrap"
-      ? module.automation-tf-bootstrap-sa.iam_email
-      : module.automation-tf-resman-sa.iam_email
-    ]
-    "roles/source.reader" = [
-      module.automation-tf-cicd-sa[each.key].iam_email
-    ]
-  }
-  triggers = {
-    "fast-0-${each.key}" = {
-      filename        = ".cloudbuild/workflow.yaml"
-      included_files  = ["**/*tf", ".cloudbuild/workflow.yaml"]
-      service_account = module.automation-tf-cicd-sa[each.key].id
-      substitutions   = {}
-      template = {
-        project_id  = null
-        branch_name = each.value.branch
-        repo_name   = each.value.name
-        tag_name    = null
-      }
+  cicd_workflow_providers = merge(
+    {
+      for k, v in local.cicd_repositories :
+      k => "${v.level}-${k}-providers.tf"
+    },
+    {
+      for k, v in local.cicd_repositories :
+      "${k}-r" => "${v.level}-${k}-r-providers.tf"
     }
-  }
+  )
 }
 
 # SAs used by CI/CD workflows to impersonate automation SAs
 
 module "automation-tf-cicd-sa" {
-  source       = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v25.0.0"
-  for_each     = local.cicd_repositories
-  project_id   = module.automation-project.project_id
-  name         = "${each.key}-1"
-  display_name = "Terraform CI/CD ${each.key} service account."
-  prefix       = local.prefix
-  iam = (
-    each.value.type == "sourcerepo"
-    # used directly from the cloud build trigger for source repos
-    ? {}
-    # impersonated via workload identity federation for external repos
-    : {
-      "roles/iam.workloadIdentityUser" = [
-        each.value.branch == null
-        ? format(
-          local.identity_providers_defs[each.value.type].principalset_tpl,
-          google_iam_workload_identity_pool.default.0.name,
-          each.value.name
-        )
-        : format(
-          local.identity_providers_defs[each.value.type].principal_tpl,
-          google_iam_workload_identity_pool.default.0.name,
-          each.value.name,
-          each.value.branch
-        )
-      ]
-    }
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v38.2.0"
+  for_each   = local.cicd_repositories
+  project_id = module.automation-project.project_id
+  name = templatestring(
+    var.resource_names["sa-cicd_template"], { key = each.key }
   )
+  display_name = "Terraform CI/CD ${each.key} service account."
+  prefix       = var.prefix
+  iam = {
+    "roles/iam.workloadIdentityUser" = [
+      each.value.repository.branch == null
+      ? format(
+        local.workload_identity_providers_defs[each.value.repository.type].principal_repo,
+        google_iam_workload_identity_pool.default[0].name,
+        each.value.repository.name
+      )
+      : format(
+        local.workload_identity_providers_defs[each.value.repository.type].principal_branch,
+        google_iam_workload_identity_pool.default[0].name,
+        each.value.repository.name,
+        each.value.repository.branch
+      )
+    ]
+  }
+  iam_project_roles = {
+    (module.automation-project.project_id) = ["roles/logging.logWriter"]
+  }
+  iam_storage_roles = {
+    (module.automation-tf-output-gcs.name) = ["roles/storage.objectViewer"]
+  }
+}
+
+module "automation-tf-cicd-r-sa" {
+  source     = "git@github.com:GoogleCloudPlatform/cloud-foundation-fabric.git//modules/iam-service-account?ref=v38.2.0"
+  for_each   = local.cicd_repositories
+  project_id = module.automation-project.project_id
+  name = templatestring(
+    var.resource_names["sa-cicd_template_ro"], { key = each.key }
+  )
+  display_name = "Terraform CI/CD ${each.key} service account (read-only)."
+  prefix       = var.prefix
+  iam = {
+    "roles/iam.workloadIdentityUser" = [
+      format(
+        local.workload_identity_providers_defs[each.value.repository.type].principal_repo,
+        google_iam_workload_identity_pool.default[0].name,
+        each.value.repository.name
+      )
+    ]
+  }
   iam_project_roles = {
     (module.automation-project.project_id) = ["roles/logging.logWriter"]
   }

@@ -11,21 +11,28 @@ It is intentionally simple, to minimize usage of administrative-level permission
 Use the following diagram as a simple high level reference for the following sections, which describe the stage and its possible customizations in detail.
 
 <p align="center">
-  <img src="diagram.svg" alt="Organization-level diagram">
+  <img src="diagram.png" alt="Organization-level diagram">
 </p>
 
-## Table of contents
-
+<!-- BEGIN TOC -->
 - [Design overview and choices](#design-overview-and-choices)
   - [User groups](#user-groups)
   - [Organization-level IAM](#organization-level-iam)
+  - [Organization policies](#organization-policies)
+    - [Security Command Center Enterprise](#security-command-center-enterprise)
+    - [Tags and Organization Policy conditions](#tags-and-organization-policy-conditions)
   - [Automation project and resources](#automation-project-and-resources)
   - [Billing account](#billing-account)
   - [Organization-level logging](#organization-level-logging)
   - [Naming](#naming)
+  - [Workforce Identity Federation](#workforce-identity-federation)
   - [Workload Identity Federation and CI/CD](#workload-identity-federation-and-cicd)
 - [How to run this stage](#how-to-run-this-stage)
   - [Prerequisites](#prerequisites)
+    - [Standalone billing account](#standalone-billing-account)
+    - [Preventing creation of billing-related IAM bindings](#preventing-creation-of-billing-related-iam-bindings)
+    - [Groups](#groups)
+    - [Configure variables](#configure-variables)
   - [Output files and cross-stage variables](#output-files-and-cross-stage-variables)
   - [Running the stage](#running-the-stage)
 - [Customizations](#customizations)
@@ -34,7 +41,13 @@ Use the following diagram as a simple high level reference for the following sec
   - [Log sinks and log destinations](#log-sinks-and-log-destinations)
   - [Names and naming convention](#names-and-naming-convention)
   - [Workload Identity Federation](#workload-identity-federation)
+  - [Project folders](#project-folders)
   - [CI/CD repositories](#cicd-repositories)
+  - [Add-ons](#add-ons)
+- [Files](#files)
+- [Variables](#variables)
+- [Outputs](#outputs)
+<!-- END TOC -->
 
 ## Design overview and choices
 
@@ -60,6 +73,66 @@ One consequence of the above setup is the need to configure IAM bindings that ca
 
 A full reference of IAM roles managed by this stage [is available here](./IAM.md).
 
+### Organization policies
+
+It's often desirable to have organization policies deployed before any other resource in the org, so as to ensure compliance with specific requirements (e.g. location restrictions), or control the configuration of specific resources (e.g. default network at project creation or service account grants).
+
+To cover this use case, organization policies have been moved from the resource management to the bootstrap stage in FAST versions after 26.0.0. They are managed via the usual factory approach, and a [sample set of data files](./data/org-policies/) is included with this stage. They are not applied during the initial run when the `bootstrap_user` variable is set, to work around incompatibilities with user credentials.
+
+FAST uses unmanaged organization policies by default. For those who prefer managed policies, a separate sample set is available. To use these managed policies, configure `factories_config` as shown below.
+
+```tfvars
+factories_config = {
+  org_policies = "data/org-policies-managed"
+}
+```
+
+#### Security Command Center Enterprise
+
+The DRS policy mentioned above might make it complex to [enable Security Command Center Enterprise](https://cloud.google.com/security-command-center/docs/activate-enterprise-tier#verify_organization_policies). If this is the case, you can temporarily disable it via the Cloud Console, enable SCC Enterprise, then re-enable the policy.
+
+#### Tags and Organization Policy conditions
+
+Organization policy exceptions are managed via a dedicated resource management tag hierarchy, rooted in the `org-policies` tag key. A default condition is already present for the the `iam.allowedPolicyMemberDomains` constraint, that relaxes the policy on resources that have the `org-policies/allowed-policy-member-domains-all` tag value bound or inherited, and similarly for `essentialcontacts.allowedContactDomains` via the `allowed-essential-contacts-domains-all` tag value.
+
+Further tag values can be defined via the `org_policies_config.tag_values` variable, and IAM access can be granted on them via the same variable. Once a tag value has been created, its id can be used in constraint rule conditions. Note that only one tag value from a given tag key can be bound to a node (organization, folder, or project) in the resource hierarchy. Since these tag values are all rooted in the `org-policies` key, this limits the ability to apply fine-grained policy constraints. It may be more desirable to model policy overrides using coarser groups of tag values to create a policy "profile". For example, instead of separating `compute.skipDefaultNetworkCreation` and `compute.vmExternalIpAccess`, enforce both constraints by default and relax them both using the same tag value such as `sandbox`. See [tags overview](https://cloud.google.com/resource-manager/docs/tags/tags-overview) for more information.
+
+Management of the rest of the tag hierarchy is delegated to the resource management stage, as that is often intimately tied to the folder hierarchy design.
+
+The organization policy tag key and values managed by this stage have been added to the `0-bootstrap.auto.tfvars` stage, so that IAM can be delegated to the resource management or successive stages via their ids.
+
+The following example shows an example on how to define an additional tag value, and use it in a boolean constraint rule.
+
+This snippet defines a new tag value under the `org-policies` tag key via the `org_policies_config` variable, and assigns the permission to bind it to a group.
+
+```hcl
+# stage 0 custom tfvars
+org_policies_config = {
+  tag_values = {
+    compute-require-oslogin-false = {
+      description = "Bind this tag to set oslogin to false."
+      iam = {
+        "roles/resourcemanager.tagUser" = [
+          "group:foo@example.com"
+        ]
+      }
+    }
+  }
+}
+# tftest skip
+```
+
+The above tag can be used to define a constraint condition via the `data/org-policies/compute.yaml` or similar factory file. The name of the tag can be referenced from the factory files using `tags.org_policies_config`, as shown below.
+
+```yaml
+compute.requireOsLogin:
+  rules:
+  - enforce: true
+  - enforce: false
+    condition:
+      expression: resource.matchTag('${tags.org_policies_tag_name}', 'compute-require-oslogin-false')
+```
+
 ### Automation project and resources
 
 One other design choice worth mentioning here is using a single automation project for all foundational stages. We trade off some complexity on the API side (single source for usage quota, multiple service activation) for increased flexibility and simpler operations, while still effectively providing the same degree of separation via resource-level IAM.
@@ -80,7 +153,9 @@ Because of limitations of API availability, manual steps have to be followed to 
 
 ### Organization-level logging
 
-We create organization-level log sinks early in the bootstrap process to ensure a proper audit trail is in place from the very beginning.  By default, we provide log filters to capture [Cloud Audit Logs](https://cloud.google.com/logging/docs/audit) and [VPC Service Controls violations](https://cloud.google.com/vpc-service-controls/docs/troubleshooting#vpc-sc-errors) into a logging bucket in the top-level audit project.
+We create organization-level log sinks early in the bootstrap process to ensure a proper audit trail is in place from the very beginning. By default, we provide log filters to capture [Cloud Audit Logs](https://cloud.google.com/logging/docs/audit), [VPC Service Controls violations](https://cloud.google.com/vpc-service-controls/docs/troubleshooting#vpc-sc-errors) and [Workspace Logs](https://cloud.google.com/logging/docs/audit/configure-gsuite-audit-logs) into logging buckets in the top-level audit logging project.
+
+An organization-level sink captures IAM data access logs, including authentication and impersonation events for service accounts. To manage logging costs, the default configuration enables IAM data access logging only within the automation project (where sensitive service accounts reside). For enhanced security across the entire organization, consider enabling these logs at the organization level.
 
 The [Customizations](#log-sinks-and-log-destinations) section explains how to change the logs captured and their destination.
 
@@ -91,17 +166,41 @@ We are intentionally not supporting random prefix/suffixes for names, as that is
 What is implemented here is a fairly common convention, composed of tokens ordered by relative importance:
 
 - an organization-level static prefix less or equal to 9 characters (e.g. `myco` or `myco-gcp`)
-- an optional tenant-level prefix, if using multitenant stages
+- an optional tenant-level prefix, if using tenant factory
 - an environment identifier (e.g. `prod`)
 - a team/owner identifier (e.g. `sec` for Security)
 - a context identifier (e.g. `core` or `kms`)
 - an arbitrary identifier used to distinguish similar resources (e.g. `0`, `1`)
+
+> [!WARNING]
+> When using tenant factory, a tenant prefix will be automatically generated as `{prefix}-{tenant-shortname}`. The maximum length of such prefix must be 11 characters or less, which means that the longer org-level prefix you use, the less chars you'll have available for the `tenant-shortname`.
 
 Tokens are joined by a `-` character, making it easy to separate the individual tokens visually, and to programmatically split them in billing exports to derive initial high-level groupings for cost attribution.
 
 The convention is used in its full form only for specific resources with globally unique names (projects, GCS buckets). Other resources adopt a shorter version for legibility, as the full context can always be derived from their project.
 
 The [Customizations](#names-and-naming-convention) section on names below explains how to configure tokens, or implement a different naming convention.
+
+### Workforce Identity Federation
+
+This stage supports configuration of [Workforce Identity Federation](https://cloud.google.com/iam/docs/workforce-identity-federation) which lets an external identity provider (IdP) to authenticate and authorize a group of users (usually employees) using IAM, so that the users can access Google Cloud services.
+
+The following example shows an example on how to define a Workforce Identity pool for the organization.
+
+```hcl
+# stage 0 wif tfvars
+workforce_identity_providers = {
+  test = {
+    issuer       = "azuread"
+    display_name = "wif-provider"
+    description  = "Workforce Identity pool"
+    saml         = {
+      idp_metadata_xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>..."
+    }
+  }
+}
+# tftest skip
+```
 
 ### Workload Identity Federation and CI/CD
 
@@ -112,7 +211,7 @@ This stage also implements initial support for two interrelated features
 
 Workload Identity Federation support allows configuring external providers independently from CI/CD, and offers predefined attributes for a few well known ones (more can be easily added by editing the `identity-providers.tf` file). Once providers have been configured their names are passed to the following stages via interface outputs, and can be leveraged to set up access or impersonation in IAM bindings.
 
-CI/CD support is fully implemented for GitHub, Gitlab, and Cloud Source Repositories / Cloud Build. For GitHub, we also offer a [separate supporting setup](../../extras/0-cicd-github/) to quickly create / configure repositories.
+CI/CD support is fully implemented for GitHub, Gitlab, and Cloud Source Repositories / Cloud Build. For GitHub, we also offer a [separate supporting setup](../../extras/0-cicd-github/) to quickly create / configure repositories. The same applies for Gitlab with the [following extra stage](../../extras/0-cicd-gitlab/).
 
 <!-- TODO: add a general overview of our design -->
 
@@ -139,6 +238,8 @@ The roles that the Organization Admin used in the first `apply` needs to self-gr
 - Organization Role Administrator (`roles/iam.organizationRoleAdmin`)
 - Organization Administrator (`roles/resourcemanager.organizationAdmin`)
 - Project Creator (`roles/resourcemanager.projectCreator`)
+- Tag Admin (`roles/resourcemanager.tagAdmin`)
+- Owner (`roles/owner`)
 
 To quickly self-grant the above roles, run the following code snippet as the initial Organization Admin:
 
@@ -152,11 +253,13 @@ export FAST_ORG_ID=123456
 
 # set needed roles
 export FAST_ROLES="roles/billing.admin roles/logging.admin \
-  roles/iam.organizationRoleAdmin roles/resourcemanager.projectCreator"
+  roles/iam.organizationRoleAdmin roles/resourcemanager.projectCreator \
+  roles/resourcemanager.organizationAdmin roles/resourcemanager.tagAdmin \
+  roles/owner"
 
 for role in $FAST_ROLES; do
   gcloud organizations add-iam-policy-binding $FAST_ORG_ID \
-    --member user:$FAST_BU --role $role
+    --member user:$FAST_BU --role $role --condition None
 done
 ```
 
@@ -176,7 +279,7 @@ gcloud beta billing accounts add-iam-policy-binding $FAST_BILLING_ACCOUNT_ID \
 
 This configuration is possible but unsupported and only present for development purposes, use at your own risk:
 
-- configure `billing_account.id` as `null` and `billing.no_iam` to `true` in your `tfvars` file
+- configure `billing_account.id` as `null` and `billing_account.no_iam` to `true` in your `tfvars` file
 - apply with `terraform apply -target 'module.automation-project.google_project.project[0]'` in addition to the initial user variable
 - once Terraform raises an error run `terraform untaint 'module.automation-project.google_project.project[0]'`
 - repeat the two steps above for `'module.log-export-project.google_project.project[0]'`
@@ -190,13 +293,15 @@ Before the first run, the following IAM groups must exist to allow IAM bindings 
 
 - `gcp-billing-admins`
 - `gcp-devops`
-- `gcp-network-admins`
+- `gcp-vpc-network-admins`
 - `gcp-organization-admins`
 - `gcp-security-admins`
 
-You can refer to [this animated image](./groups.gif) for a step by step on group creation.
+You can refer to [this animated image](./groups.gif) for a step by step on group creation via the [Google Cloud Enterprise Checklist](https://cloud.google.com/docs/enterprise/setup-checklist).
 
-Please note that FAST also supports an additional group for users with permissions to create support tickets and view logging and monitoring data. To remain consistent with the [Google Cloud Enterprise Checklist](https://cloud.google.com/docs/enterprise/setup-checklist) we map these permissions to the `gcp-devops` by default. However, we recommend creating a dedicated `gcp-support` group and updating the `groups` variable with the right value.
+Please note that not all groups defined by the Checklist are actually used by FAST, as our approach to IAM is slightly different. As an example, we do not centralize monitoring functions as in our experience those are typically domain-specific (e.g. networking or application-level), so we don't leverage the corresponding groups. You are free of course to create those groups via the Checklist, and assign them roles via the IAM variables exposed by this stage.
+
+One more difference compared to the Checklist is the use in FAST of an additional group to centralize support functions like viewing tickets and accessing logging and monitoring data. To remain consistent with the [Google Cloud Enterprise Checklist](https://cloud.google.com/docs/enterprise/setup-checklist) we map these permissions to the `gcp-devops` group by default. However, we recommend creating a dedicated `gcp-support` group and updating the `groups` variable with the right value.
 
 #### Configure variables
 
@@ -209,10 +314,10 @@ Then make sure you have configured the correct values for the following variable
 - `organization.id`, `organization.domain`, `organization.customer_id`
   the id, domain and customer id of your organization, derived from the Cloud Console UI or by running `gcloud organizations list`
 - `prefix`
-  the fixed org-level prefix used in your naming, maximum 9 characters long. Note that if you are using multitenant stages, then you will later need to configure a `tenant prefix`. 
-  This `tenant prefix` can have a maximum length of 2 characters, 
-  plus any unused characters from the from the `prefix`. 
-  For example, if you specify a `prefix` that is 7 characters long, 
+  the fixed org-level prefix used in your naming, maximum 9 characters long. Note that if you are using multitenant stages, then you will later need to configure a `tenant prefix`.
+  This `tenant prefix` can have a maximum length of 2 characters,
+  plus any unused characters from the from the `prefix`.
+  For example, if you specify a `prefix` that is 7 characters long,
   then your `tenant prefix` can have a maximum of 4 characters.
 
 You can also adapt the example that follows to your needs:
@@ -231,7 +336,16 @@ organization = {
  customer_id = "C000001"
 }
 
+# local path to store tfvars/provider outputs generated by this stage
 outputs_location = "~/fast-config"
+
+# locations for GCS, BigQuery, and logging buckets created here
+locations = {
+  bq      = "EU"
+  gcs     = "EU"
+  logging = "global"
+  pubsub  = []
+}
 
 # use something unique and no longer than 9 characters
 prefix = "abcd"
@@ -241,7 +355,7 @@ prefix = "abcd"
 
 Each foundational FAST stage generates provider configurations and variable files can be consumed by the following stages, and saves them in a dedicated GCS bucket in the automation project. These files are a handy way to simplify stage configuration, and are also used by our CI/CD workflows to configure the repository files in the pipelines that validate and apply the code.
 
-Alongisde the GCS stored files, you can also configure a second copy to be saves on the local filesystem, as a convenience when developing or bringing up the infrastructure before a proper CI/CD setup is in place.
+Alongside the GCS stored files, you can also configure a second copy to be saves on the local filesystem, as a convenience when developing or bringing up the infrastructure before a proper CI/CD setup is in place.
 
 This second set of files is disabled by default, you can enable it by setting the `outputs_location` variable to a valid path on a local filesystem, e.g.
 
@@ -260,8 +374,8 @@ Below is the outline of the output files generated by all stages, which is ident
 │   ├── 1-resman-providers.tf
 │   ├── 2-networking-providers.tf
 │   ├── 2-security-providers.tf
-│   ├── 3-project-factory-dev-providers.tf
-│   ├── 3-project-factory-prod-providers.tf
+│   ├── 2-project-factory-dev-providers.tf
+│   ├── 2-project-factory-prod-providers.tf
 │   └── 9-sandbox-providers.tf
 └── tfvars
 │   ├── 0-bootstrap.auto.tfvars.json
@@ -292,30 +406,50 @@ Once the initial `apply` completes successfully, configure a remote backend usin
 - the GCS bucket where output files are always stored
 - Terraform outputs (not recommended as it's more complex)
 
-The following two snippets show how to leverage the `stage-links.sh` script in the root FAST folder to fetch the commands required for output files linking or copying, using either the local output folder configured via Terraform variables, or the GCS bucket which can be derived from the `automation` output.
+The following two snippets show how to leverage the `fast-links.sh` script in the FAST stages folder to fetch the commands required for output files linking or copying, using either the local output folder configured via Terraform variables, or the GCS bucket which can be derived from the `automation` output.
 
 ```bash
-../../stage-links.sh ~/fast-config
+../fast-links.sh ~/fast-config
 
-# copy and paste the following commands for '0-bootstrap'
+# File linking commands for organization bootstrap stage
 
-ln -s ~/fast-config/providers/0-bootstrap-providers.tf ./
+# provider file
+ln -s ~/fast-config/fast-test-00/providers/0-bootstrap-providers.tf ./
+
+# conventional place for stage tfvars (manually created)
+ln -s ~/fast-config/fast-test-00/0-bootstrap.auto.tfvars ./
 ```
 
 ```bash
-../../stage-links.sh gs://xxx-prod-iac-core-outputs-0
+../fast-links.sh gs://xxx-prod-iac-core-outputs-0
 
-# copy and paste the following commands for '0-bootstrap'
+# File linking commands for organization bootstrap stage
 
-gcloud alpha storage cp gs://xxx-prod-iac-core-outputs-0/providers/0-bootstrap-providers.tf ./
+# provider file
+gcloud storage cp gs://xxx-prod-iac-core-outputs-0/providers/0-bootstrap-providers.tf ./
+
+# conventional place for stage tfvars (manually created)
+gcloud storage cp gs://xxx-prod-iac-core-outputs-0/0-bootstrap.auto.tfvars ./
 ```
 
-Copy/paste the command returned by the script to link or copy the provider file, then migrate state with `terraform init` and run `terraform apply`:
+- important for CI/CD
+The `0-bootstrap.auto.tfvars` file is a crucial component of the CI/CD pipeline and must be manually created. This file is essentially the `terraform.tfvars` file renamed to avoid being ignored in version control systems like GitHub or GitLab, where `terraform.tfvars` is often included in `.gitignore`. By renaming it and committing `0-bootstrap.auto.tfvars` to your source control, you ensure that the necessary configurations are available in the pipeline.
+
+Copy/paste the command returned by the script to link or copy the provider file, then migrate state with `terraform init` and run `terraform apply`. If your organization was created with "Secure by Default Org Policy", that is with some of the org policies enabled, add `-var 'org_policies_config={"import_defaults": true}'` to `terraform apply`:
 
 ```bash
 terraform init -migrate-state
 terraform apply
 ```
+
+or
+
+```bash
+terraform init -migrate-state
+terraform apply -var 'org_policies_config={"import_defaults": true}'
+```
+
+if there default policies are enabled.
 
 Make sure the user you're logged in with is a member of the `gcp-organization-admins` group or impersonation will not be possible.
 
@@ -352,16 +486,25 @@ One other area where we directly support customizations is IAM. The code here, a
 
 In code, the distinction above reflects on how IAM bindings are specified in the underlying module variables:
 
-- group roles "for humans" always use `iam_groups` variables
+- group roles "for humans" always use `iam_by_principals` variables
 - service account roles always use `iam` variables
 
-This makes it easy to tweak user roles by adding mappings to the `iam_groups` variables of the relevant resources, without having to understand and deal with the details of service account roles.
+This makes it easy to tweak user roles by adding mappings to the `iam_by_principals` variables of the relevant resources, without having to understand and deal with the details of service account roles.
 
-In those cases where roles need to be assigned to end-user service accounts (e.g. an application or pipeline service account), we offer a stage-level `iam` variable that allows pinpointing individual role/members pairs, without having to touch the code internals, to avoid the risk of breaking a critical role for a robot account. The variable can also be used to assign roles to specific users or to groups external to the organization, e.g. to support external suppliers.
+One more critical difference in IAM bindings is between authoritative and additive:
 
-The one exception to this convention is for roles which are part of the delegated grant condition described above, and which can then be assigned from other stages. In this case, use the `iam_additive` variable as they are implemented with non-authoritative resources. Using non-authoritative bindings ensure that re-executing this stage will not override any bindings set in downstream stages.
+- authoritative bindings have complete control on principals for a given role; this is the recommended best practice when a single automation actor controls the role, as it removes drift each time Terraform runs
+- additive bindings have control only on given role/principal pairs, and need to be used whenever multiple automation actors need to control the role, as is the case for the network user role in Shared VPC setups, and many other situations
 
-A full reference of IAM roles managed by this stage [is available here](./IAM.md).
+This stage groups all IAM definitions in the [organization-iam.tf](./organization-iam.tf) file, to allow easy parsing of roles assigned to each group and machine identity.
+
+When customizations are needed, three stage-level variables allow injecting additional bindings to match the desired setup:
+
+- `iam_by_principals` allows adding authoritative bindings for groups
+- `iam` allows adding authoritative bindings for any type of supported principal, and is merged with the internal `iam` local and then with group bindings at the module level
+- `iam_bindings_additive` allows adding individual role/member pairs, and also supports IAM conditions
+
+Refer to the [project module](../../../modules/project/) for examples on how to use the IAM variables, and they are an interface shared across all our modules.
 
 ### Log sinks and log destinations
 
@@ -373,6 +516,8 @@ You can customize organization-level logs through the `log_sinks` variable in tw
 By default, all logs are exported to a log bucket, but FAST can create sinks to BigQuery, GCS, or PubSub.
 
 If you need to capture additional logs, please refer to GCP's documentation on [scenarios for exporting logging data](https://cloud.google.com/architecture/exporting-stackdriver-logging-for-security-and-access-analytics), where you can find ready-made filter expressions for different use cases.
+
+When using Pubsub or BigQuery destinations, make sure the read-only stage service account (`prefix-prod-bootstrap-0r@prefix-prod-iac-core-0.iam.gserviceaccount.com`) has the necessary permissions to view destination resources. You can add them manually via the authoritative `iam` or the additive `iam_bindings_additive` variables. Refer to issue [#2540](https://github.com/GoogleCloudPlatform/cloud-foundation-fabric/issues/2540) for a discussion on this topic, and simple commands to verify proper permissions have been added.
 
 ### Names and naming convention
 
@@ -397,12 +542,14 @@ Provider key names are used by the `cicd_repositories` variable to configure aut
 
 This is a sample configuration of a GitHub and a Gitlab provider. Every parameter is optional.
 
-If users don't specify the `issuer_uri` we assume the default `issuer_uri` for public platforms should be used.
+The `custom_settings` attributes are used to configure the provider to work with privately managed installations of Github and Gitlab:
 
-If users don't specify the `audience`, we set the url of the provider, as recommended in the [WIF FAQ section](https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation#provider-audience).
+- `issuer_uri` (defaults to the public platforms one if not set)
+- `audience` (defaults to the public URL of the provider if not set, as recommended in the [WIF FAQ section](https://cloud.google.com/iam/docs/best-practices-for-using-workload-identity-federation#provider-audience))
+- `jwks_json` for public key upload
 
 ```tfvars
-federated_identity_providers = {
+workload_identity_providers = {
   # Use the public GitHub and specify an attribute condition
   github-public-sample = {
     attribute_condition = "attribute.repository_owner==\"my-github-org\""
@@ -421,10 +568,22 @@ federated_identity_providers = {
     attribute_condition = "attribute.namespace_path==\"my-gitlab-org\""
     issuer              = "gitlab"
     custom_settings = {
-      allowed_audiences = ["https://gitlab.fast.example.com"]
+      audiences = ["https://gitlab.fast.example.com"]
       issuer_uri        = "https://gitlab.fast.example.com"
     }
   }
+}
+```
+
+### Project folders
+
+By default this stage creates all its projects directly under the orgaization node. If desired, projects can be moved under a folder using the `project_parent_ids` variable.
+
+```tfvars
+project_parent_ids = {
+  automation = "folders/1234567890"
+  billing    = "folders/9876543210"
+  logging    = "folders/1234567890"
 }
 ```
 
@@ -453,7 +612,7 @@ cicd_repositories = {
 }
 ```
 
-The `type` attribute can be set to one of the supported repository types: `github`, `gitlab`, or `sourcerepo`.
+The `type` attribute can be set to one of the supported repository types: `github` or `gitlab`.
 
 Once the stage is applied the generated output files will contain pre-configured workflow files for each repository, that will use Workload Identity Federation via a dedicated service account for each repository to impersonate the automation service account for the stage.
 
@@ -473,6 +632,7 @@ The remaining configuration is manual, as it regards the repositories themselves
     - for Source Repositories
       - assign the reader role to the CI/CD service accounts
 - create one repository for each stage
+  - do an initial apply cycle for the stage so that state exists
   - clone and populate them with the stage source
   - edit the modules source to match your modules repository
     - a simple way is using the "Replace in files" function of your editor
@@ -485,8 +645,13 @@ The remaining configuration is manual, as it regards the repositories themselves
     - for GitHub, place it in a `.github/workflows` folder in the repository root
     - for Gitlab, rename it to `.gitlab-ci.yml` and place it in the repository root
     - for Source Repositories, place it in `.cloudbuild/workflow.yaml`
+  - To prevent the creation of local files in the CI/CD pipeline, comment out the `outputs_location` line in the `terraform.tfvars` file by adding a `#` at the beginning, like so: `# outputs_location = "~/fast-config"`. This configuration is only necessary for the initial local deployments and should not be used in the CI/CD environment.
 
-<!-- TFDOC OPTS files:1 show_extra:1 -->
+### Add-ons
+
+FAST defines a simple mechanism to extend stage functionality via the use of [add-ons](../../addons/). Configuration for stage 1 add-ons happens here via the `fast_addon` variable. Refer to the add-ons documentation for more details on their use.
+
+<!-- TFDOC OPTS files:1 show_extra:1 exclude:0-bootstrap-providers.tf -->
 <!-- BEGIN TFDOC -->
 ## Files
 
@@ -494,49 +659,62 @@ The remaining configuration is manual, as it regards the repositories themselves
 |---|---|---|---|
 | [automation.tf](./automation.tf) | Automation project and resources. | <code>gcs</code> · <code>iam-service-account</code> · <code>project</code> |  |
 | [billing.tf](./billing.tf) | Billing export project and dataset. | <code>bigquery-dataset</code> · <code>project</code> | <code>google_billing_account_iam_member</code> |
-| [cicd.tf](./cicd.tf) | Workload Identity Federation configurations for CI/CD. | <code>iam-service-account</code> · <code>source-repository</code> |  |
-| [identity-providers.tf](./identity-providers.tf) | Workload Identity Federation provider definitions. |  | <code>google_iam_workload_identity_pool</code> · <code>google_iam_workload_identity_pool_provider</code> |
+| [cicd.tf](./cicd.tf) | CI/CD locals and resources. | <code>iam-service-account</code> |  |
+| [identity-providers-defs.tf](./identity-providers-defs.tf) | Identity provider definitions. |  |  |
+| [identity-providers.tf](./identity-providers.tf) | Workload Identity Federation provider definitions. |  | <code>google_iam_workforce_pool</code> · <code>google_iam_workforce_pool_provider</code> · <code>google_iam_workload_identity_pool</code> · <code>google_iam_workload_identity_pool_provider</code> |
 | [log-export.tf](./log-export.tf) | Audit log project and sink. | <code>bigquery-dataset</code> · <code>gcs</code> · <code>logging-bucket</code> · <code>project</code> · <code>pubsub</code> |  |
 | [main.tf](./main.tf) | Module-level locals and resources. |  |  |
-| [organization.tf](./organization.tf) | Organization-level IAM. | <code>organization</code> | <code>google_organization_iam_binding</code> |
+| [organization-iam.tf](./organization-iam.tf) | Organization-level IAM bindings locals. |  |  |
+| [organization.tf](./organization.tf) | Organization-level IAM. | <code>organization</code> |  |
 | [outputs-files.tf](./outputs-files.tf) | Output files persistence to local filesystem. |  | <code>local_file</code> |
 | [outputs-gcs.tf](./outputs-gcs.tf) | Output files persistence to automation GCS bucket. |  | <code>google_storage_bucket_object</code> |
+| [outputs-providers.tf](./outputs-providers.tf) | Locals for provider output files. |  |  |
 | [outputs.tf](./outputs.tf) | Module outputs. |  |  |
+| [variables-addons.tf](./variables-addons.tf) | None |  |  |
 | [variables.tf](./variables.tf) | Module variables. |  |  |
 
 ## Variables
 
 | name | description | type | required | default | producer |
 |---|---|:---:|:---:|:---:|:---:|
-| [billing_account](variables.tf#L17) | Billing account id. If billing account is not part of the same org set `is_org_level` to `false`. To disable handling of billing IAM roles set `no_iam` to `true`. | <code title="object&#40;&#123;&#10;  id           &#61; string&#10;  is_org_level &#61; optional&#40;bool, true&#41;&#10;  no_iam       &#61; optional&#40;bool, false&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> | ✓ |  |  |
-| [organization](variables.tf#L206) | Organization details. | <code title="object&#40;&#123;&#10;  domain      &#61; string&#10;  id          &#61; number&#10;  customer_id &#61; string&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> | ✓ |  |  |
-| [prefix](variables.tf#L221) | Prefix used for resources that need unique names. Use 9 characters or less. | <code>string</code> | ✓ |  |  |
-| [bootstrap_user](variables.tf#L27) | Email of the nominal user running this stage for the first time. | <code>string</code> |  | <code>null</code> |  |
-| [cicd_repositories](variables.tf#L33) | CI/CD repository configuration. Identity providers reference keys in the `federated_identity_providers` variable. Set to null to disable, or set individual repositories to null if not needed. | <code title="object&#40;&#123;&#10;  bootstrap &#61; optional&#40;object&#40;&#123;&#10;    branch            &#61; string&#10;    identity_provider &#61; string&#10;    name              &#61; string&#10;    type              &#61; string&#10;  &#125;&#41;&#41;&#10;  resman &#61; optional&#40;object&#40;&#123;&#10;    branch            &#61; string&#10;    identity_provider &#61; string&#10;    name              &#61; string&#10;    type              &#61; string&#10;  &#125;&#41;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>null</code> |  |
-| [custom_role_names](variables.tf#L79) | Names of custom roles defined at the org level. | <code title="object&#40;&#123;&#10;  organization_iam_admin        &#61; string&#10;  service_project_network_admin &#61; string&#10;  tenant_network_admin          &#61; string&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code title="&#123;&#10;  organization_iam_admin        &#61; &#34;organizationIamAdmin&#34;&#10;  service_project_network_admin &#61; &#34;serviceProjectNetworkAdmin&#34;&#10;  tenant_network_admin          &#61; &#34;tenantNetworkAdmin&#34;&#10;&#125;">&#123;&#8230;&#125;</code> |  |
-| [custom_roles](variables.tf#L93) | Map of role names => list of permissions to additionally create at the organization level. | <code>map&#40;list&#40;string&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
-| [fast_features](variables.tf#L100) | Selective control for top-level FAST features. | <code title="object&#40;&#123;&#10;  data_platform   &#61; optional&#40;bool, false&#41;&#10;  gke             &#61; optional&#40;bool, false&#41;&#10;  project_factory &#61; optional&#40;bool, false&#41;&#10;  sandbox         &#61; optional&#40;bool, false&#41;&#10;  teams           &#61; optional&#40;bool, false&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
-| [federated_identity_providers](variables.tf#L113) | Workload Identity Federation pools. The `cicd_repositories` variable references keys here. | <code title="map&#40;object&#40;&#123;&#10;  attribute_condition &#61; optional&#40;string&#41;&#10;  issuer              &#61; string&#10;  custom_settings &#61; optional&#40;object&#40;&#123;&#10;    issuer_uri        &#61; optional&#40;string&#41;&#10;    allowed_audiences &#61; optional&#40;list&#40;string&#41;, &#91;&#93;&#41;&#10;  &#125;&#41;, &#123;&#125;&#41;&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
-| [groups](variables.tf#L132) | Group names or emails to grant organization-level permissions. If just the name is provided, the default organization domain is assumed. | <code>map&#40;string&#41;</code> |  | <code title="&#123;&#10;  gcp-billing-admins      &#61; &#34;gcp-billing-admins&#34;,&#10;  gcp-devops              &#61; &#34;gcp-devops&#34;,&#10;  gcp-network-admins      &#61; &#34;gcp-network-admins&#34;&#10;  gcp-organization-admins &#61; &#34;gcp-organization-admins&#34;&#10;  gcp-security-admins     &#61; &#34;gcp-security-admins&#34;&#10;  gcp-support &#61; &#34;gcp-devops&#34;&#10;&#125;">&#123;&#8230;&#125;</code> |  |
-| [iam](variables.tf#L150) | Organization-level custom IAM settings in role => [principal] format. | <code>map&#40;list&#40;string&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
-| [iam_additive](variables.tf#L156) | Organization-level custom IAM settings in role => [principal] format for non-authoritative bindings. | <code>map&#40;list&#40;string&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
-| [locations](variables.tf#L162) | Optional locations for GCS, BigQuery, and logging buckets created here. | <code title="object&#40;&#123;&#10;  bq      &#61; string&#10;  gcs     &#61; string&#10;  logging &#61; string&#10;  pubsub  &#61; list&#40;string&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code title="&#123;&#10;  bq      &#61; &#34;EU&#34;&#10;  gcs     &#61; &#34;EU&#34;&#10;  logging &#61; &#34;global&#34;&#10;  pubsub  &#61; &#91;&#93;&#10;&#125;">&#123;&#8230;&#125;</code> |  |
-| [log_sinks](variables.tf#L181) | Org-level log sinks, in name => {type, filter} format. | <code title="map&#40;object&#40;&#123;&#10;  filter &#61; string&#10;  type   &#61; string&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code title="&#123;&#10;  audit-logs &#61; &#123;&#10;    filter &#61; &#34;logName:&#92;&#34;&#47;logs&#47;cloudaudit.googleapis.com&#37;2Factivity&#92;&#34; OR logName:&#92;&#34;&#47;logs&#47;cloudaudit.googleapis.com&#37;2Fsystem_event&#92;&#34;&#34;&#10;    type   &#61; &#34;logging&#34;&#10;  &#125;&#10;  vpc-sc &#61; &#123;&#10;    filter &#61; &#34;protoPayload.metadata.&#64;type&#61;&#92;&#34;type.googleapis.com&#47;google.cloud.audit.VpcServiceControlAuditMetadata&#92;&#34;&#34;&#10;    type   &#61; &#34;logging&#34;&#10;  &#125;&#10;&#125;">&#123;&#8230;&#125;</code> |  |
-| [outputs_location](variables.tf#L215) | Enable writing provider, tfvars and CI/CD workflow files to local filesystem. Leave null to disable. | <code>string</code> |  | <code>null</code> |  |
-| [project_parent_ids](variables.tf#L230) | Optional parents for projects created here in folders/nnnnnnn format. Null values will use the organization as parent. | <code title="object&#40;&#123;&#10;  automation &#61; string&#10;  billing    &#61; string&#10;  logging    &#61; string&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code title="&#123;&#10;  automation &#61; null&#10;  billing    &#61; null&#10;  logging    &#61; null&#10;&#125;">&#123;&#8230;&#125;</code> |  |
+| [billing_account](variables.tf#L17) | Billing account id. If billing account is not part of the same org set `is_org_level` to `false`. To disable handling of billing IAM roles set `no_iam` to `true`. | <code title="object&#40;&#123;&#10;  id &#61; string&#10;  force_create &#61; optional&#40;object&#40;&#123;&#10;    dataset &#61; optional&#40;bool, false&#41;&#10;    project &#61; optional&#40;bool, false&#41;&#10;  &#125;&#41;, &#123;&#125;&#41;&#10;  is_org_level &#61; optional&#40;bool, true&#41;&#10;  no_iam       &#61; optional&#40;bool, false&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> | ✓ |  |  |
+| [organization](variables.tf#L280) | Organization details. | <code title="object&#40;&#123;&#10;  id          &#61; number&#10;  domain      &#61; optional&#40;string&#41;&#10;  customer_id &#61; optional&#40;string&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> | ✓ |  |  |
+| [prefix](variables.tf#L295) | Prefix used for resources that need unique names. Use 9 characters or less. | <code>string</code> | ✓ |  |  |
+| [bootstrap_user](variables.tf#L38) | Email of the nominal user running this stage for the first time. | <code>string</code> |  | <code>null</code> |  |
+| [cicd_config](variables.tf#L44) | CI/CD repository configuration. Identity providers reference keys in the `federated_identity_providers` variable. Set to null to disable, or set individual repositories to null if not needed. | <code title="object&#40;&#123;&#10;  bootstrap &#61; optional&#40;object&#40;&#123;&#10;    identity_provider &#61; string&#10;    repository &#61; object&#40;&#123;&#10;      name   &#61; string&#10;      branch &#61; optional&#40;string&#41;&#10;      type   &#61; optional&#40;string, &#34;github&#34;&#41;&#10;    &#125;&#41;&#10;  &#125;&#41;&#41;&#10;  resman &#61; optional&#40;object&#40;&#123;&#10;    identity_provider &#61; string&#10;    repository &#61; object&#40;&#123;&#10;      name   &#61; string&#10;      branch &#61; optional&#40;string&#41;&#10;      type   &#61; optional&#40;string, &#34;github&#34;&#41;&#10;    &#125;&#41;&#10;  &#125;&#41;&#41;&#10;  vpcsc &#61; optional&#40;object&#40;&#123;&#10;    identity_provider &#61; string&#10;    repository &#61; object&#40;&#123;&#10;      name   &#61; string&#10;      branch &#61; optional&#40;string&#41;&#10;      type   &#61; optional&#40;string, &#34;github&#34;&#41;&#10;    &#125;&#41;&#10;  &#125;&#41;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [custom_roles](variables.tf#L85) | Map of role names => list of permissions to additionally create at the organization level. | <code>map&#40;list&#40;string&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [environments](variables.tf#L92) | Environment names. When not defined, short name is set to the key and tag name to lower(name). | <code title="map&#40;object&#40;&#123;&#10;  name       &#61; string&#10;  is_default &#61; optional&#40;bool, false&#41;&#10;  short_name &#61; optional&#40;string&#41;&#10;  tag_name   &#61; optional&#40;string&#41;&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code title="&#123;&#10;  dev &#61; &#123;&#10;    name &#61; &#34;Development&#34;&#10;  &#125;&#10;  prod &#61; &#123;&#10;    name       &#61; &#34;Production&#34;&#10;    is_default &#61; true&#10;  &#125;&#10;&#125;">&#123;&#8230;&#125;</code> |  |
+| [essential_contacts](variables.tf#L132) | Email used for essential contacts, unset if null. | <code>string</code> |  | <code>null</code> |  |
+| [factories_config](variables.tf#L138) | Configuration for the resource factories or external data. | <code title="object&#40;&#123;&#10;  custom_constraints &#61; optional&#40;string, &#34;data&#47;custom-constraints&#34;&#41;&#10;  custom_roles       &#61; optional&#40;string, &#34;data&#47;custom-roles&#34;&#41;&#10;  org_policies       &#61; optional&#40;string, &#34;data&#47;org-policies&#34;&#41;&#10;  org_policies_iac   &#61; optional&#40;string, &#34;data&#47;org-policies-iac&#34;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [fast_addon](variables-addons.tf#L17) | FAST addons configurations for stages 1. Keys are used as short names for the add-on resources. | <code title="map&#40;object&#40;&#123;&#10;  parent_stage &#61; string&#10;  cicd_config &#61; optional&#40;object&#40;&#123;&#10;    identity_provider &#61; string&#10;    repository &#61; object&#40;&#123;&#10;      name   &#61; string&#10;      branch &#61; optional&#40;string&#41;&#10;      type   &#61; optional&#40;string, &#34;github&#34;&#41;&#10;    &#125;&#41;&#10;  &#125;&#41;&#41;&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [groups](variables.tf#L150) | Group names or IAM-format principals to grant organization-level permissions. If just the name is provided, the 'group:' principal and organization domain are interpolated. | <code title="object&#40;&#123;&#10;  gcp-billing-admins      &#61; optional&#40;string, &#34;gcp-billing-admins&#34;&#41;&#10;  gcp-devops              &#61; optional&#40;string, &#34;gcp-devops&#34;&#41;&#10;  gcp-network-admins      &#61; optional&#40;string, &#34;gcp-vpc-network-admins&#34;&#41;&#10;  gcp-organization-admins &#61; optional&#40;string, &#34;gcp-organization-admins&#34;&#41;&#10;  gcp-security-admins     &#61; optional&#40;string, &#34;gcp-security-admins&#34;&#41;&#10;  gcp-support &#61; optional&#40;string, &#34;gcp-devops&#34;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [iam](variables.tf#L166) | Organization-level custom IAM settings in role => [principal] format. | <code>map&#40;list&#40;string&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [iam_bindings_additive](variables.tf#L173) | Organization-level custom additive IAM bindings. Keys are arbitrary. | <code title="map&#40;object&#40;&#123;&#10;  member &#61; string&#10;  role   &#61; string&#10;  condition &#61; optional&#40;object&#40;&#123;&#10;    expression  &#61; string&#10;    title       &#61; string&#10;    description &#61; optional&#40;string&#41;&#10;  &#125;&#41;&#41;&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [iam_by_principals](variables.tf#L188) | Authoritative IAM binding in {PRINCIPAL => [ROLES]} format. Principals need to be statically defined to avoid cycle errors. Merged internally with the `iam` variable. | <code>map&#40;list&#40;string&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [locations](variables.tf#L195) | Optional locations for GCS, BigQuery, and logging buckets created here. | <code title="object&#40;&#123;&#10;  bq      &#61; optional&#40;string, &#34;EU&#34;&#41;&#10;  gcs     &#61; optional&#40;string, &#34;EU&#34;&#41;&#10;  logging &#61; optional&#40;string, &#34;global&#34;&#41;&#10;  pubsub  &#61; optional&#40;list&#40;string&#41;, &#91;&#93;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [log_sinks](variables.tf#L209) | Org-level log sinks, in name => {type, filter} format. | <code title="map&#40;object&#40;&#123;&#10;  filter     &#61; string&#10;  type       &#61; string&#10;  disabled   &#61; optional&#40;bool, false&#41;&#10;  exclusions &#61; optional&#40;map&#40;string&#41;, &#123;&#125;&#41;&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code title="&#123;&#10;  audit-logs &#61; &#123;&#10;    filter &#61; &#60;&#60;-FILTER&#10;      log_id&#40;&#34;cloudaudit.googleapis.com&#47;activity&#34;&#41; OR&#10;      log_id&#40;&#34;cloudaudit.googleapis.com&#47;system_event&#34;&#41; OR&#10;      log_id&#40;&#34;cloudaudit.googleapis.com&#47;policy&#34;&#41; OR&#10;      log_id&#40;&#34;cloudaudit.googleapis.com&#47;access_transparency&#34;&#41;&#10;    FILTER&#10;    type   &#61; &#34;logging&#34;&#10;  &#125;&#10;  iam &#61; &#123;&#10;    filter &#61; &#60;&#60;-FILTER&#10;      protoPayload.serviceName&#61;&#34;iamcredentials.googleapis.com&#34; OR&#10;      protoPayload.serviceName&#61;&#34;iam.googleapis.com&#34; OR&#10;      protoPayload.serviceName&#61;&#34;sts.googleapis.com&#34;&#10;    FILTER&#10;    type   &#61; &#34;logging&#34;&#10;  &#125;&#10;  vpc-sc &#61; &#123;&#10;    filter &#61; &#60;&#60;-FILTER&#10;      protoPayload.metadata.&#64;type&#61;&#34;type.googleapis.com&#47;google.cloud.audit.VpcServiceControlAuditMetadata&#34;&#10;    FILTER&#10;    type   &#61; &#34;logging&#34;&#10;  &#125;&#10;  workspace-audit-logs &#61; &#123;&#10;    filter &#61; &#60;&#60;-FILTER&#10;      protoPayload.serviceName&#61;&#34;admin.googleapis.com&#34; OR&#10;      protoPayload.serviceName&#61;&#34;cloudidentity.googleapis.com&#34; OR&#10;      protoPayload.serviceName&#61;&#34;login.googleapis.com&#34;&#10;    FILTER&#10;    type   &#61; &#34;logging&#34;&#10;  &#125;&#10;&#125;">&#123;&#8230;&#125;</code> |  |
+| [org_policies_config](variables.tf#L265) | Organization policies customization. | <code title="object&#40;&#123;&#10;  iac_policy_member_domains &#61; optional&#40;list&#40;string&#41;&#41;&#10;  import_defaults           &#61; optional&#40;bool, false&#41;&#10;  tag_name                  &#61; optional&#40;string, &#34;org-policies&#34;&#41;&#10;  tag_values &#61; optional&#40;map&#40;object&#40;&#123;&#10;    description &#61; optional&#40;string, &#34;Managed by the Terraform organization module.&#34;&#41;&#10;    iam         &#61; optional&#40;map&#40;list&#40;string&#41;&#41;, &#123;&#125;&#41;&#10;    id          &#61; optional&#40;string&#41;&#10;  &#125;&#41;&#41;, &#123;&#125;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [outputs_location](variables.tf#L289) | Enable writing provider, tfvars and CI/CD workflow files to local filesystem. Leave null to disable. | <code>string</code> |  | <code>null</code> |  |
+| [project_parent_ids](variables.tf#L304) | Optional parents for projects created here in folders/nnnnnnn format. Null values will use the organization as parent. | <code title="object&#40;&#123;&#10;  automation &#61; optional&#40;string&#41;&#10;  billing    &#61; optional&#40;string&#41;&#10;  logging    &#61; optional&#40;string&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [resource_names](variables.tf#L315) | Resource names overrides for specific resources. Prefix is always set via code, except where noted in the variable type. | <code title="object&#40;&#123;&#10;  bq-billing           &#61; optional&#40;string, &#34;billing_export&#34;&#41;&#10;  bq-logs              &#61; optional&#40;string, &#34;logs&#34;&#41;&#10;  gcs-bootstrap        &#61; optional&#40;string, &#34;prod-iac-core-bootstrap-0&#34;&#41;&#10;  gcs-logs             &#61; optional&#40;string, &#34;prod-logs&#34;&#41;&#10;  gcs-outputs          &#61; optional&#40;string, &#34;prod-iac-core-outputs-0&#34;&#41;&#10;  gcs-resman           &#61; optional&#40;string, &#34;prod-iac-core-resman-0&#34;&#41;&#10;  gcs-vpcsc            &#61; optional&#40;string, &#34;prod-iac-core-vpcsc-0&#34;&#41;&#10;  project-automation   &#61; optional&#40;string, &#34;prod-iac-core-0&#34;&#41;&#10;  project-billing      &#61; optional&#40;string, &#34;prod-billing-exp-0&#34;&#41;&#10;  project-logs         &#61; optional&#40;string, &#34;prod-audit-logs-0&#34;&#41;&#10;  pubsub-logs_template &#61; optional&#40;string, &#34;&#36;&#36;&#123;key&#125;&#34;&#41;&#10;  sa-bootstrap         &#61; optional&#40;string, &#34;prod-bootstrap-0&#34;&#41;&#10;  sa-bootstrap_ro      &#61; optional&#40;string, &#34;prod-bootstrap-0r&#34;&#41;&#10;  sa-cicd_template     &#61; optional&#40;string, &#34;prod-&#36;&#36;&#123;key&#125;-1&#34;&#41;&#10;  sa-cicd_template_ro  &#61; optional&#40;string, &#34;prod-&#36;&#36;&#123;key&#125;-1r&#34;&#41;&#10;  sa-resman            &#61; optional&#40;string, &#34;prod-resman-0&#34;&#41;&#10;  sa-resman_ro         &#61; optional&#40;string, &#34;prod-resman-0r&#34;&#41;&#10;  sa-vpcsc             &#61; optional&#40;string, &#34;prod-vpcsc-0&#34;&#41;&#10;  sa-vpcsc_ro          &#61; optional&#40;string, &#34;prod-vpcsc-0r&#34;&#41;&#10;  wf-bootstrap          &#61; optional&#40;string, &#34;&#36;&#36;&#123;prefix&#125;-bootstrap&#34;&#41;&#10;  wf-provider_template  &#61; optional&#40;string, &#34;&#36;&#36;&#123;prefix&#125;-bootstrap-&#36;&#36;&#123;key&#125;&#34;&#41;&#10;  wif-bootstrap         &#61; optional&#40;string, &#34;&#36;&#36;&#123;prefix&#125;-bootstrap&#34;&#41;&#10;  wif-provider_template &#61; optional&#40;string, &#34;&#36;&#36;&#123;prefix&#125;-bootstrap-&#36;&#36;&#123;key&#125;&#34;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [universe](variables.tf#L347) | Target GCP universe. | <code title="object&#40;&#123;&#10;  domain               &#61; string&#10;  prefix               &#61; string&#10;  unavailable_services &#61; optional&#40;list&#40;string&#41;, &#91;&#93;&#41;&#10;&#125;&#41;">object&#40;&#123;&#8230;&#125;&#41;</code> |  | <code>null</code> |  |
+| [workforce_identity_providers](variables.tf#L357) | Workforce Identity Federation pools. | <code title="map&#40;object&#40;&#123;&#10;  attribute_condition &#61; optional&#40;string&#41;&#10;  issuer              &#61; string&#10;  display_name        &#61; string&#10;  description         &#61; string&#10;  disabled            &#61; optional&#40;bool, false&#41;&#10;  saml &#61; optional&#40;object&#40;&#123;&#10;    idp_metadata_xml &#61; string&#10;  &#125;&#41;, null&#41;&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
+| [workload_identity_providers](variables.tf#L373) | Workload Identity Federation pools. The `cicd_repositories` variable references keys here. | <code title="map&#40;object&#40;&#123;&#10;  attribute_condition &#61; optional&#40;string&#41;&#10;  issuer              &#61; string&#10;  custom_settings &#61; optional&#40;object&#40;&#123;&#10;    issuer_uri &#61; optional&#40;string&#41;&#10;    audiences  &#61; optional&#40;list&#40;string&#41;, &#91;&#93;&#41;&#10;    jwks_json  &#61; optional&#40;string&#41;&#10;  &#125;&#41;, &#123;&#125;&#41;&#10;&#125;&#41;&#41;">map&#40;object&#40;&#123;&#8230;&#125;&#41;&#41;</code> |  | <code>&#123;&#125;</code> |  |
 
 ## Outputs
 
 | name | description | sensitive | consumers |
 |---|---|:---:|---|
-| [automation](outputs.tf#L100) | Automation resources. |  |  |
-| [billing_dataset](outputs.tf#L105) | BigQuery dataset prepared for billing export. |  |  |
-| [cicd_repositories](outputs.tf#L110) | CI/CD repository configurations. |  |  |
-| [custom_roles](outputs.tf#L122) | Organization-level custom roles. |  |  |
-| [federated_identity](outputs.tf#L127) | Workload Identity Federation pool and providers. |  |  |
-| [outputs_bucket](outputs.tf#L137) | GCS bucket where generated output files are stored. |  |  |
-| [project_ids](outputs.tf#L142) | Projects created by this stage. |  |  |
-| [providers](outputs.tf#L152) | Terraform provider files for this stage and dependent stages. | ✓ | <code>stage-01</code> |
-| [service_accounts](outputs.tf#L159) | Automation service accounts created by this stage. |  |  |
-| [tfvars](outputs.tf#L168) | Terraform variable files for the following stages. | ✓ |  |
+| [automation](outputs.tf#L113) | Automation resources. |  |  |
+| [billing_dataset](outputs.tf#L118) | BigQuery dataset prepared for billing export. |  |  |
+| [cicd_repositories](outputs.tf#L123) | CI/CD repository configurations. |  |  |
+| [custom_roles](outputs.tf#L135) | Organization-level custom roles. |  |  |
+| [outputs_bucket](outputs.tf#L140) | GCS bucket where generated output files are stored. |  |  |
+| [project_ids](outputs.tf#L145) | Projects created by this stage. |  |  |
+| [providers](outputs.tf#L155) | Terraform provider files for this stage and dependent stages. | ✓ | <code>stage-01</code> |
+| [service_accounts](outputs.tf#L162) | Automation service accounts created by this stage. |  |  |
+| [tfvars](outputs.tf#L171) | Terraform variable files for the following stages. | ✓ |  |
+| [tfvars_globals](outputs.tf#L177) | Terraform Globals variable files for the following stages. | ✓ |  |
+| [workforce_identity_pool](outputs.tf#L183) | Workforce Identity Federation pool. |  |  |
+| [workload_identity_pool](outputs.tf#L192) | Workload Identity Federation pool and providers. |  |  |
 <!-- END TFDOC -->

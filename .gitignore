@@ -1,4 +1,7 @@
 .terraform*
 terraform*
 *.auto.tfvars*
-*providers*
+*providers.tf*
+!*.tpl
+!outputs-*
+versions.tf
